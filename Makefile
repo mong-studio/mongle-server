@@ -9,15 +9,14 @@ COLOR_YELLOW  := \033[33m
 COLOR_BLUE    := \033[34m
 COLOR_CYAN    := \033[36m
 
-PYTHON ?= python3
 VENV := .venv
 VENV_BIN := $(VENV)/bin
-PIP := $(VENV_BIN)/pip
 PYTHON_VENV := $(VENV_BIN)/python
+UV ?= uv
 
-SRC_DIR := src
+SRC_DIRS := apps common config infrastructure
 TEST_DIR := tests
-ALL_DIRS := $(SRC_DIR) $(TEST_DIR) manage.py
+ALL_DIRS := $(SRC_DIRS) $(TEST_DIR) manage.py
 
 RUFF := $(VENV_BIN)/ruff
 PRE_COMMIT := $(VENV_BIN)/pre-commit
@@ -67,16 +66,12 @@ help:
 
 install:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)프로덕션 의존성 설치 중...$(COLOR_RESET)"
-	@test -d $(VENV) || $(PYTHON) -m venv $(VENV)
-	@$(PIP) install --upgrade pip setuptools wheel
-	@$(PIP) install -e .
+	@$(UV) sync --locked
 	@echo "$(COLOR_GREEN)✓ 설치 완료$(COLOR_RESET)"
 
 install-dev:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)개발 의존성 설치 중...$(COLOR_RESET)"
-	@test -d $(VENV) || $(PYTHON) -m venv $(VENV)
-	@$(PIP) install --upgrade pip setuptools wheel
-	@$(PIP) install -e ".[dev]"
+	@$(UV) sync --locked --extra dev
 	@$(MAKE) install-hooks
 	@echo "$(COLOR_GREEN)✓ 개발 환경 설치 완료$(COLOR_RESET)"
 
@@ -121,18 +116,18 @@ ci-check:
 	@$(RUFF) format $(ALL_DIRS) --check
 	@$(MANAGE) check
 	@$(MANAGE) makemigrations --check --dry-run
-	@$(MYPY) $(SRC_DIR)
-	@$(PYTEST) --cov=src/mongle_server --cov-report=term-missing --no-header -q
+	@$(MYPY) $(SRC_DIRS)
+	@$(PYTEST) --cov=apps --cov=common --cov=config --cov=infrastructure --cov-report=term-missing --no-header -q
 	@echo "$(COLOR_GREEN)✓ CI 검사 통과$(COLOR_RESET)"
 
 test:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)테스트 실행 중...$(COLOR_RESET)"
-	@$(PYTEST) --cov=src/mongle_server --cov-report=term-missing
+	@$(PYTEST) --cov=apps --cov=common --cov=config --cov=infrastructure --cov-report=term-missing
 	@echo "$(COLOR_GREEN)✓ 테스트 완료$(COLOR_RESET)"
 
 typecheck:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)타입 검사 중...$(COLOR_RESET)"
-	@$(MYPY) $(SRC_DIR)
+	@$(MYPY) $(SRC_DIRS)
 	@echo "$(COLOR_GREEN)✓ 타입 검사 완료$(COLOR_RESET)"
 
 migrate:

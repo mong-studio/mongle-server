@@ -1,4 +1,4 @@
-"""URL configuration for mongle_server."""
+"""Root URL configuration."""
 
 from __future__ import annotations
 
