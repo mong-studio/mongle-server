@@ -69,6 +69,7 @@ curl http://localhost:8000/health/
 | ------------------ | ---------------------------------------------------- | ------------------------------------ |
 | `make help`        | 사용 가능한 명령어 목록을 보여줍니다.                | 무슨 명령어가 있는지 까먹었을 때     |
 | `make install-dev` | 개발에 필요한 패키지를 설치하고 Git 훅을 연결합니다. | 처음 세팅할 때                       |
+| `make install-hooks` | Git `pre-commit`, `commit-msg`, `pre-push` 훅을 설치합니다. | 훅만 다시 연결하고 싶을 때 |
 | `make migrate`     | 데이터베이스 구조를 최신 상태로 맞춥니다.            | 처음 실행하거나 DB 변경 뒤           |
 | `make runserver`   | Django 개발 서버를 8000번 포트로 실행합니다.         | 로컬에서 API를 확인할 때             |
 | `make shell`       | Django shell을 엽니다.                               | 데이터나 설정을 직접 확인할 때       |
@@ -83,6 +84,12 @@ curl http://localhost:8000/health/
 | `make docker-logs` | `web` 컨테이너 로그를 계속 보여줍니다.               | Docker 실행 중 문제를 볼 때          |
 
 ## PR 올리기 전 체크
+
+`make install-dev` 또는 `make install-hooks`를 실행하면 로컬 Git 훅이 설치됩니다.
+
+- `pre-commit`: Ruff lint 자동 수정과 format을 실행합니다.
+- `commit-msg`: Commitizen 규칙으로 커밋 메시지를 검사합니다.
+- `pre-push`: `make ci-check`로 CI와 비슷한 전체 검사를 실행합니다.
 
 PR을 올리기 전에 아래 명령어를 한 번 실행하면 좋습니다.
 
