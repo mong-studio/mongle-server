@@ -31,11 +31,12 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["apps*", "common*", "config*", "infrastructure*"]
 
 [tool.ruff]
 target-version = "py312"
-src = ["src", "tests"]
+src = ["apps", "common", "config", "infrastructure", "tests"]
 line-length = 88
 
 [tool.ruff.lint]
@@ -63,7 +64,7 @@ unfixable = []
 "tests/**/*.py" = ["S101", "S106"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["mongle_server"]
+known-first-party = ["apps", "common", "config", "infrastructure"]
 combine-as-imports = true
 force-sort-within-sections = true
 
@@ -74,17 +75,17 @@ skip-magic-trailing-comma = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "."]
+pythonpath = ["."]
 addopts = "--strict-markers --strict-config -v"
-DJANGO_SETTINGS_MODULE = "mongle_server.settings"
+DJANGO_SETTINGS_MODULE = "config.settings.test"
 
 [tool.coverage.run]
-source = ["src/mongle_server"]
+source = ["apps", "common", "config", "infrastructure"]
 branch = true
 omit = [
-    "src/mongle_server/asgi.py",
-    "src/mongle_server/settings.py",
-    "src/mongle_server/wsgi.py",
+    "config/asgi.py",
+    "config/settings/*.py",
+    "config/wsgi.py",
 ]
 
 [tool.coverage.report]
@@ -102,10 +103,10 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 plugins = ["mypy_django_plugin.main"]
-mypy_path = ["src"]
+mypy_path = ["."]
 
 [tool.django-stubs]
-django_settings_module = "mongle_server.settings"
+django_settings_module = "config.settings.test"
 
 [[tool.mypy.overrides]]
 module = ["environ"]
