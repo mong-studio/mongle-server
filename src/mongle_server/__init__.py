@@ -1,0 +1,1 @@
+"""Mongle Django backend service."""
