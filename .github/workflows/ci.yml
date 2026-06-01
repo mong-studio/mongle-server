@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:9.7
+        env:
+          MYSQL_DATABASE: mongle
+          MYSQL_USER: mongle
+          MYSQL_PASSWORD: mongle
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      DJANGO_SECRET_KEY: ci-secret-key
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_URL: mysql://mongle:mongle@127.0.0.1:3306/mongle
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.18"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install MySQL client dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y default-libmysqlclient-dev pkg-config
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check apps common config infrastructure tests manage.py --no-fix
+
+      - name: Ruff format
+        run: uv run ruff format apps common config infrastructure tests manage.py --check
+
+      - name: Django checks
+        run: |
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+
+      - name: Type check
+        run: uv run mypy apps common config infrastructure
+
+      - name: Test
+        run: uv run pytest --cov=apps --cov=common --cov=config --cov=infrastructure --cov-report=term-missing --no-header -q
