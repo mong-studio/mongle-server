@@ -15,6 +15,7 @@ def health_check(request: object) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 
 
+# TODO: 추후 수정 필요
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health-check"),
