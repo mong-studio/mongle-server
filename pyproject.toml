@@ -13,6 +13,7 @@ authors = [{name = "Junghee Im", email = "imjion.dev@gmail.com"}]
 keywords = ["django", "mysql", "backend"]
 
 dependencies = [
+    "bcrypt>=4.2,<5.0",
     "Django>=5.2,<6.0",
     "django-environ>=0.11.2",
     "mysqlclient>=2.2.4",
@@ -83,6 +84,7 @@ DJANGO_SETTINGS_MODULE = "config.settings.test"
 source = ["apps", "common", "config", "infrastructure"]
 branch = true
 omit = [
+    "apps/*/migrations/*.py",
     "config/asgi.py",
     "config/settings/*.py",
     "config/wsgi.py",

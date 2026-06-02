@@ -1,0 +1,28 @@
+﻿Endpoint,Domain,HTTP method,Name,Server,담당자,상태,요구사항명세서 ID,토큰
+/auth/email-verification,회원관리,POST,AUTH-001 이메일 인증,Web,,시작 전,REQ-AUTH-001,No
+/auth/email-verification/confirm,,POST,AUTH-002 이메일 인증 확인,Web,,시작 전,"REQ-AUTH-001, REQ-AUTH-007",No
+/auth/signup,,POST,AUTH-003 회원가입,Web,,시작 전,REQ-AUTH-001,No
+/auth/login,,POST,AUTH-004 로그인,Web,,시작 전,REQ-AUTH-002,No
+/auth/token/refresh,,POST,AUTH-005 토큰 재발급,Web,,시작 전,REQ-AUTH-002,Yes
+/tokens,토큰,GET,TOKE-001 토큰 잔액 조회,Web,,시작 전,REQ-TOKE-001,Yes
+/auth/kakao,,POST,AUTH-006 카카오 로그인,Web,,시작 전,REQ-AUTH-003,No
+/auth/kakao/callback,,POST,AUTH-006 카카오 콜백 처리,Web,,시작 전,REQ-AUTH-003,No
+/users/me,,GET,AUTH-007 내 정보 조회,Web,,시작 전,,Yes
+/users/me,,PATCH,AUTH-008 내 정보 수정,Web,,시작 전,,Yes
+/users/me/password,,PATCH,AUTH-009 비밀번호 변경,Web,,시작 전,,Yes
+/auth/logout,,POST,AUTH-012 로그아웃,Web,,시작 전,,Yes
+/users/me,,DELETE,AUTH-013 회원 탈퇴,Web,,시작 전,,Yes
+/auth/email-verifications,,POST,AUTH-010 비밀번호 찾기 인증,Web,,시작 전,,No
+/auth/password/reset,,POST,AUTH-011 비밀번호 찾기 완료,Web,,시작 전,,No
+/characters/source-images,캐릭터,POST,CHAR-001 캐릭터 생성용 이미지 업로드 URL 발급,Web,,시작 전,,Yes
+Web 공통 규칙,공통,,공통 규칙,Web,,시작 전,,No
+,,,,,,시작 전,,No
+,,,,,,시작 전,,No
+,,,,,,시작 전,,No
+/tokens/transactions?limit=20&cursor=…,,GET,TOKE-002 토큰 거래 내역 조회,Web,,시작 전,,Yes
+/notifications?limit=20&cursor=…,알림,GET,NOTI-001 알림 기록 조회,Web,,시작 전,REQ-NOTI-001,Yes
+/notifications/{notification_id},,PATCH,NOTI-002 알림 읽음 처리,Web,,시작 전,REQ-NOTI-001,Yes
+/pomodoro-sessions,포모도로,POST,POMO-001 포모도로 세션 시작,,,시작 전,,Yes
+,,,,,,시작 전,,No
+,,,,,,시작 전,,No
+AI 공통 규칙,,,,AI,,시작 전,,No
