@@ -6,12 +6,11 @@ from apps.todos.models import Todo
 class TodoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Todo
-        fields = [
+        fields = (
             "todo_id",
             "content",
             "status",
             "todo_date",
-            "is_extended",
             "created_at",
-        ]
-        read_only_fields = ["todo_id", "status", "created_at"]
+        )
+        read_only_fields = ("todo_id", "status", "created_at")

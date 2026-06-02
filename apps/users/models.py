@@ -8,8 +8,10 @@ from django.contrib.auth.models import (
 from django.db import models
 
 
-class UserManager(BaseUserManager):
-    def create_user(self, email, password=None, **extra_fields):
+class UserManager(BaseUserManager["User"]):
+    def create_user(
+        self, email: str, password: str | None = None, **extra_fields: object
+    ) -> "User":
         if not email:
             raise ValueError("이메일은 필수입니다.")
         email = self.normalize_email(email)
@@ -19,7 +21,9 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, password, **extra_fields):
+    def create_superuser(
+        self, email: str, password: str, **extra_fields: object
+    ) -> "User":
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         return self.create_user(email, password, **extra_fields)

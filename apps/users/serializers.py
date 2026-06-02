@@ -15,7 +15,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         # 회원가입 시 받을 필드 목록
-        fields = ["email", "password", "user_name", "job", "birth"]
+        fields = ("email", "password", "user_name", "job", "birth")
 
     def create(self, validated_data):
         # is_valid() 통과 후 save() 호출 시 실행되는 메서드
@@ -58,5 +58,5 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["user_id", "email", "user_name", "token_balance", "created_at"]
+        fields = ("user_id", "email", "user_name", "token_balance", "created_at")
         read_only_fields = fields  # 이 Serializer는 읽기 전용 (수정 불가)

@@ -122,11 +122,8 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
-    # access 토큰 유효 기간: 1시간
-    # 만료되면 refresh 토큰으로 새 access 토큰 발급 필요
     "REFRESH_TOKEN_LIFETIME": timedelta(weeks=2),
-    # refresh 토큰 유효 기간: 2주 (자동 로그인 구현에 사용)
-    # 2주 안에 앱을 사용하면 자동으로 로그인 유지
     "AUTH_HEADER_TYPES": ("Bearer",),
-    # 요청 헤더에 토큰을 보낼 때 형식: "Authorization: Bearer 토큰값"
+    "USER_ID_FIELD": "user_id",
+    "USER_ID_CLAIM": "user_id",
 }

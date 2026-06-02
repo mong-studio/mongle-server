@@ -9,7 +9,7 @@ from apps.users.serializers import LoginSerializer, RegisterSerializer, UserSeri
 
 
 class RegisterView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = (AllowAny,)
     # 기본 설정은 "로그인한 사람만 접근 가능"이지만
     # 회원가입은 로그인 전에 하는 것이므로 누구나 접근 가능하도록 변경
 
@@ -35,12 +35,12 @@ class RegisterView(APIView):
                 "access": str(refresh.access_token),  # 이후 API 요청에 사용할 토큰
                 "refresh": str(refresh),  # 토큰 갱신에 사용할 토큰
             },
-            status=status.HTTP_201_CREATED,  # 201: 새 리소스가 성공적으로 생성됨
+            status=status.HTTP_201_CREATED,
         )
 
 
 class LoginView(APIView):
-    permission_classes = [AllowAny]  # 로그인도 당연히 누구나 접근 가능
+    permission_classes = (AllowAny,)  # 로그인도 당연히 누구나 접근 가능
 
     def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data)
@@ -61,7 +61,7 @@ class LoginView(APIView):
 
 
 class MeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = (IsAuthenticated,)
     # 로그인한 사람만 접근 가능 (JWT 토큰 필요)
 
     def get(self, request: Request) -> Response:

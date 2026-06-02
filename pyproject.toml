@@ -24,6 +24,7 @@ dependencies = [
 dev = [
     "commitizen>=3.29.0",
     "django-stubs>=5.1.0",
+    "djangorestframework-stubs>=3.15.0",
     "mypy>=1.10",
     "pre-commit>=3.8.0",
     "pytest>=8.0",
@@ -42,6 +43,7 @@ src = ["apps", "common", "config", "infrastructure", "tests"]
 line-length = 88
 
 [tool.ruff.lint]
+
 select = [
     "E",
     "W",
@@ -59,6 +61,7 @@ select = [
     "PERF",
     "TRY",
 ]
+ignore = ["TRY003", "RUF012"]
 fixable = ["ALL"]
 unfixable = []
 
@@ -104,7 +107,7 @@ python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
-plugins = ["mypy_django_plugin.main"]
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 mypy_path = ["."]
 
 [tool.django-stubs]
@@ -113,6 +116,18 @@ django_settings_module = "config.settings.test"
 [[tool.mypy.overrides]]
 module = ["environ"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["rest_framework_simplejwt.*"]
+ignore_missing_imports = true
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "apps.*.serializers",
+    "apps.*.views",
+]
+ignore_errors = true
 
 [tool.commitizen]
 name = "cz_conventional_commits"

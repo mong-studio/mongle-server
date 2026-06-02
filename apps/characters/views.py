@@ -7,7 +7,7 @@ from apps.characters.serializers import CharacterSerializer
 
 class CharacterListCreateView(generics.ListCreateAPIView):
     serializer_class = CharacterSerializer
-    permission_classes = [IsAuthenticated]  # 로그인한 사람만 접근 가능
+    permission_classes = (IsAuthenticated,)  # 로그인한 사람만 접근 가능
 
     def get_queryset(self):
         # "내 캐릭터 중 활성화된 것만 조회"
@@ -24,7 +24,7 @@ class CharacterDetailView(generics.RetrieveUpdateDestroyAPIView):
     # RetrieveUpdateDestroyAPIView: 조회/수정/삭제를 한 클래스에서 모두 처리
 
     serializer_class = CharacterSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = (IsAuthenticated,)
     lookup_field = "character_id"  # URL의 {character_id} 값으로 DB에서 캐릭터를 찾음
 
     def get_queryset(self):

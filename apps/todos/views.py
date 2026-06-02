@@ -7,7 +7,7 @@ from apps.todos.serializers import TodoSerializer
 
 class TodoListCreateView(generics.ListCreateAPIView):
     serializer_class = TodoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
         # 내 TODO만 조회, 최신순 정렬
@@ -19,7 +19,7 @@ class TodoListCreateView(generics.ListCreateAPIView):
 
 class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TodoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = (IsAuthenticated,)
     lookup_field = "todo_id"
 
     def get_queryset(self):
