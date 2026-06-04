@@ -53,6 +53,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y default-libmysqlclient-dev pkg-config
 
+      - name: Grant test database privileges
+        run: mysql -h 127.0.0.1 -u root -proot -e "GRANT ALL PRIVILEGES ON \`test_mongle\`.* TO 'mongle'@'%'; FLUSH PRIVILEGES;"
+
       - name: Install dependencies
         run: uv sync --locked --extra dev
 

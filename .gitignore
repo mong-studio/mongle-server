@@ -16,3 +16,6 @@ staticfiles/
 media/*
 !media/.gitkeep
 docs/api-spec/api-spec_detail/*
+.omc
+.claudeignore
+.omc/
