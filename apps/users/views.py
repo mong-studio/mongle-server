@@ -1,3 +1,7 @@
+import hashlib
+
+from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -6,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.users.models import RefreshToken as RefreshTokenModel
 from apps.users.serializers import LoginSerializer, RegisterSerializer, UserSerializer
 
 
@@ -83,11 +88,25 @@ class LoginView(APIView):
         )
 
         if remember_me:
+            # refresh token을 해시화해서 DB에 저장
+            # 원본 토큰이 아닌 해시값만 저장해서 탈취되더라도 안전
+            token_str = str(refresh)
+            token_hash = hashlib.sha256(token_str.encode()).hexdigest()
+            RefreshTokenModel.objects.create(
+                user=user,
+                token_hash=token_hash,
+                # HTTP_USER_AGENT: 어떤 기기에서 로그인했는지
+                device_info=request.META.get("HTTP_USER_AGENT", ""),
+                expires_at=timezone.now() + timezone.timedelta(days=7),
+            )
+
             # remember_me=true 시 refresh token을 HttpOnly cookie로 발급
             response.set_cookie(
                 key="refresh_token",
-                value=str(refresh),
+                value=token_str,
                 httponly=True,
+                # 개발환경(DEBUG=True)에서는 False, 배포환경에서는 True
+                secure=not settings.DEBUG,
                 samesite="Lax",
                 max_age=7 * 24 * 60 * 60,  # 7일
             )
