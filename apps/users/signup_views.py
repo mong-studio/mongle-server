@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare, salted_hmac
 from django.views.decorators.csrf import csrf_exempt
@@ -276,7 +276,3 @@ def _is_signup_email_verified(verification: object, email: str) -> bool:
     if not verified_until:
         return False
     return timezone.now() <= datetime.fromisoformat(str(verified_until))
-
-
-def no_content(_: HttpRequest) -> HttpResponse:
-    return HttpResponse(status=204)
