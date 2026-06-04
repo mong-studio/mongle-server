@@ -1,4 +1,4 @@
-"""Account API views."""
+"""Email-verification and signup API views."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from django.utils.crypto import constant_time_compare, salted_hmac
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from apps.accounts.models import User
-from apps.accounts.validators import (
+from apps.users.models import User
+from apps.users.validators import (
     parse_json_body,
     validate_email,
     validate_optional_birth,
@@ -220,7 +220,7 @@ def signup(request: HttpRequest) -> JsonResponse:
 
     return JsonResponse(
         {
-            "user_id": str(user.id),
+            "user_id": str(user.user_id),
             "email": user.email,
             "user_name": user.user_name,
             "token_balance": user.token_balance,
@@ -237,7 +237,7 @@ def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
         ("email", lambda: validate_email(body.get("email"))),
         ("password", lambda: validate_password(body.get("password"))),
         ("user_name", lambda: validate_user_name(body.get("user_name"))),
-        ("job", lambda: validate_optional_string(body.get("job"), "job", 50)),
+        ("job", lambda: validate_optional_string(body.get("job"), "job", 20)),
         ("birth", lambda: validate_optional_birth(body.get("birth"))),
         (
             "is_aiconsent",

@@ -8,8 +8,8 @@ from django.test import Client, override_settings
 from django.utils import timezone
 import pytest
 
-from apps.accounts import views as account_views
-from apps.accounts.models import User
+from apps.users import signup_views as account_views
+from apps.users.models import User
 
 pytestmark = pytest.mark.django_db
 
