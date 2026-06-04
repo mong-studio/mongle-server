@@ -7,6 +7,8 @@ from django.http import JsonResponse
 from django.urls import include, path
 from django.views.decorators.http import require_GET
 
+from apps.users import signup_views
+
 
 @require_GET
 def health_check(request: object) -> JsonResponse:
@@ -19,6 +21,17 @@ def health_check(request: object) -> JsonResponse:
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health-check"),
+    path(
+        "auth/email-verification",
+        signup_views.request_email_verification,
+        name="email-verification",
+    ),
+    path(
+        "auth/email-verification/confirm",
+        signup_views.confirm_email_verification,
+        name="email-verification-confirm",
+    ),
+    path("auth/signup", signup_views.signup, name="signup"),
     path("api/auth/", include("apps.users.urls")),
     path("api/characters/", include("apps.characters.urls")),
     path("api/todos/", include("apps.todos.urls")),
