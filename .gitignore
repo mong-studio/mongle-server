@@ -19,3 +19,5 @@ docs/api-spec/api-spec_detail/*
 .omc
 .claudeignore
 .omc/
+*.erd
+*.sql

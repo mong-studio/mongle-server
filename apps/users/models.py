@@ -91,3 +91,39 @@ class RefreshToken(models.Model):
 
     class Meta:
         db_table = "refresh_tokens"
+
+
+class TokenTransaction(models.Model):
+    token_transaction_id = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="token_transactions",
+    )
+    amount = models.IntegerField()
+    type = models.CharField(max_length=30)
+    reference_id = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "token_transactions"
+
+
+class Notification(models.Model):
+    notification_id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    type = models.CharField(max_length=20)
+    title = models.CharField(max_length=100)
+    content = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "notifications"
