@@ -33,6 +33,7 @@ class LoginSerializer(serializers.Serializer):
 
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)  # 응답에 비밀번호 포함 안 함
+    remember_me = serializers.BooleanField(default=False)  # 자동 로그인 여부
 
     def validate(self, attrs):
         # is_valid() 호출 시 자동으로 실행되는 유효성 검사 메서드

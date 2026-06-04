@@ -32,7 +32,7 @@ urlpatterns = [
         name="email-verification-confirm",
     ),
     path("auth/signup", signup_views.signup, name="signup"),
-    path("api/auth/", include("apps.users.urls")),
+    path("auth/", include("apps.users.urls")),
     path("api/characters/", include("apps.characters.urls")),
     path("api/todos/", include("apps.todos.urls")),
     path("api/quests/", include("apps.quests.urls")),
