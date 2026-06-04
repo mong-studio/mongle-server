@@ -7,6 +7,8 @@ from pathlib import Path
 
 import environ
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 # django-environ: .env 파일에서 환경변수를 읽어오는 라이브러리
@@ -150,7 +152,6 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
-from celery.schedules import crontab  # noqa: E402
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CELERY_BROKER_URL = REDIS_URL
