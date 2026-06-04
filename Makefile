@@ -29,6 +29,7 @@ MANAGE := $(PYTHON_VENV) manage.py
 
 .PHONY: help install install-dev install-hooks clean lint format check \
         ci-check validate test typecheck migrate runserver shell \
+        celery celery-beat \
         docker-up docker-down docker-logs pre-commit run-all commit \
         bump-version update-hooks
 
@@ -45,6 +46,8 @@ help:
 	@echo "  make migrate         - 데이터베이스 마이그레이션"
 	@echo "  make runserver       - Django 개발 서버 실행"
 	@echo "  make shell           - Django shell 실행"
+	@echo "  make celery          - Celery 워커 실행"
+	@echo "  make celery-beat     - Celery Beat 스케줄러 실행"
 	@echo ""
 	@echo "$(COLOR_GREEN)검증:$(COLOR_RESET)"
 	@echo "  make lint            - Ruff lint 자동 수정"
@@ -138,6 +141,12 @@ runserver:
 
 shell:
 	@$(MANAGE) shell
+
+celery:
+	@$(VENV_BIN)/celery -A config worker --loglevel=info
+
+celery-beat:
+	@$(VENV_BIN)/celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
 docker-up:
 	@docker compose up --build

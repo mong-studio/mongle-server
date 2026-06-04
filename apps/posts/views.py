@@ -28,6 +28,13 @@ class CommentCreateView(APIView):
 
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(post=post, user=request.user)
+        comment = serializer.save(post=post, user=request.user)
+
+        from apps.posts.tasks import generate_character_reply
+
+        generate_character_reply.apply_async(
+            args=[str(comment.comment_id)],
+            countdown=600,  # 10분 후 실행
+        )
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
