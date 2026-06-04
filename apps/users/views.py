@@ -1,10 +1,10 @@
-from rest_framework import status  # HTTP 상태코드 모음 (200, 201, 400 등)
-from rest_framework.permissions import AllowAny, IsAuthenticated  # 접근 권한 클래스
-from rest_framework.request import Request  # 타입 힌트용 Request 클래스
-from rest_framework.response import Response  # JSON 응답을 만드는 클래스
-from rest_framework.views import APIView  # DRF의 기본 View 클래스
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-from rest_framework_simplejwt.tokens import RefreshToken  # JWT 토큰 생성 도구
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.users.serializers import LoginSerializer, RegisterSerializer, UserSerializer
 
@@ -49,7 +49,13 @@ class LoginView(APIView):
             # 400 VALIDATION_ERROR: 입력값 오류 (이메일 형식 틀림, 필드 누락 등)
             if "email" in serializer.errors or "password" in serializer.errors:
                 return Response(
-                    {"error": {"code": 400, "message": "VALIDATION_ERROR", "details": serializer.errors}},
+                    {
+                        "error": {
+                            "code": 400,
+                            "message": "VALIDATION_ERROR",
+                            "details": serializer.errors,
+                        }
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             # 401 INVALID_CREDENTIALS: 이메일/비밀번호 불일치
@@ -58,20 +64,35 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        user = serializer.validated_data["user"]  # 검증된 유저 객체 꺼내기
+        user = serializer.validated_data["user"]
         refresh = RefreshToken.for_user(user)  # 해당 유저의 JWT 토큰 발급
+        remember_me = serializer.validated_data.get("remember_me", False)
 
-        return Response({
-            "access_token": str(refresh.access_token),
-            "token_type": "bearer",
-            "expires_in_seconds": 3600,
-            "users": {
-                "user_id": str(user.user_id),
-                "email": user.email,
-                "user_name": user.user_name,
-                "has_character": False,
-            },
-        })
+        response = Response(
+            {
+                "access_token": str(refresh.access_token),
+                "token_type": "bearer",
+                "expires_in_seconds": 3600,
+                "users": {
+                    "user_id": str(user.user_id),
+                    "email": user.email,
+                    "user_name": user.user_name,
+                    "has_character": False,
+                },
+            }
+        )
+
+        if remember_me:
+            # remember_me=true 시 refresh token을 HttpOnly cookie로 발급
+            response.set_cookie(
+                key="refresh_token",
+                value=str(refresh),
+                httponly=True,
+                samesite="Lax",
+                max_age=7 * 24 * 60 * 60,  # 7일
+            )
+
+        return response
 
 
 class TokenRefreshView(APIView):
@@ -90,10 +111,12 @@ class TokenRefreshView(APIView):
         try:
             refresh = RefreshToken(refresh_token)
             # HttpOnly cookie에서 refresh token을 읽어 새 access token 발급
-            return Response({
-                "access_token": str(refresh.access_token),
-                "expires_in_seconds": 3600,
-            })
+            return Response(
+                {
+                    "access_token": str(refresh.access_token),
+                    "expires_in_seconds": 3600,
+                }
+            )
         except TokenError:
             # 401 REFRESH_TOKEN_EXPIRED: refresh token 만료
             return Response(
