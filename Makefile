@@ -143,10 +143,10 @@ shell:
 	@$(MANAGE) shell
 
 celery:
-	@$(VENV_BIN)/celery -A config worker --loglevel=info
+	@DJANGO_SETTINGS_MODULE=config.settings.development $(VENV_BIN)/celery -A config worker --loglevel=info
 
 celery-beat:
-	@$(VENV_BIN)/celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+	@DJANGO_SETTINGS_MODULE=config.settings.development $(VENV_BIN)/celery -A config beat --loglevel=info
 
 docker-up:
 	@docker compose up --build

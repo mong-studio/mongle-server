@@ -21,6 +21,10 @@ def generate_character_reply(comment_id: str) -> None:
         return
 
     character = comment.post.character
+
+    if Reply.objects.filter(comment=comment, character=character).exists():
+        return
+
     # TODO: AI 생성으로 교체 예정
     content = f"{character.character_name}이(가) 댓글을 확인했어요!"
 

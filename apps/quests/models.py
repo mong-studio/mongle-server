@@ -19,6 +19,11 @@ class Quest(models.Model):
         related_name="quests",
     )
     content = models.TextField()
+    status = models.CharField(
+        max_length=20,
+        choices=Todo.Status.choices,
+        default=Todo.Status.IN_PROGRESS,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

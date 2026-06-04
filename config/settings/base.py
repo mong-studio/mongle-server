@@ -165,10 +165,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     "send-reflection-notification": {
         "task": "apps.users.tasks.send_reflection_notification",
-        "schedule": crontab(hour=0, minute=0),
+        "schedule": crontab(hour=0, minute=1),
     },
     "reset-image-gen-count": {
         "task": "apps.characters.tasks.reset_image_gen_count",
-        "schedule": crontab(hour=0, minute=0),
+        "schedule": crontab(hour=0, minute=2),
     },
 }
