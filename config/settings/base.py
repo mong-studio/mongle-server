@@ -7,6 +7,8 @@ from pathlib import Path
 
 import environ
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 # django-environ: .env 파일에서 환경변수를 읽어오는 라이브러리
@@ -39,8 +41,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",  # 일회성 메시지 (플래시 메시지)
     "django.contrib.staticfiles",  # 정적 파일 (CSS, JS 등) 관리
     # 외부 패키지
-    "rest_framework",  # DRF — Django로 REST API를 쉽게 만드는 도구
-    "rest_framework_simplejwt",  # JWT 토큰 인증 (로그인 후 토큰 발급/검증)
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "django_celery_beat",
     # 추가 앱
     "apps.users",  # 회원/인증
     "apps.characters",  # 캐릭터
@@ -147,4 +150,25 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "user_id",
     "USER_ID_CLAIM": "user_id",
+}
+
+
+REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_TIMEZONE = "Asia/Seoul"
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULE = {
+    "fail-incomplete-todos": {
+        "task": "apps.todos.tasks.fail_incomplete_todos",
+        "schedule": crontab(hour=0, minute=0),
+    },
+    "send-reflection-notification": {
+        "task": "apps.users.tasks.send_reflection_notification",
+        "schedule": crontab(hour=0, minute=1),
+    },
+    "reset-image-gen-count": {
+        "task": "apps.characters.tasks.reset_image_gen_count",
+        "schedule": crontab(hour=0, minute=2),
+    },
 }

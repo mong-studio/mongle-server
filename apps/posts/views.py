@@ -1,3 +1,6 @@
+import logging
+
+from django.db import transaction
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -5,12 +8,15 @@ from rest_framework.views import APIView
 
 from apps.posts.models import Post
 from apps.posts.serializers import CommentSerializer, PostSerializer
+from apps.posts.tasks import generate_character_reply
+
+logger = logging.getLogger(__name__)
 
 
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = Post.objects.all().order_by("-created_at")  # 모든 피드를 최신순으로
+    queryset = Post.objects.all().order_by("-created_at")
 
 
 class PostDetailView(generics.RetrieveAPIView):
@@ -28,6 +34,23 @@ class CommentCreateView(APIView):
 
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(post=post, user=request.user)
+        comment = serializer.save(post=post, user=request.user)
+
+        comment_id = str(comment.comment_id)
+
+        def _schedule_reply() -> None:
+            try:
+                generate_character_reply.apply_async(
+                    args=[comment_id],
+                    countdown=600,  # 10분 후 실행
+                )
+            except Exception as e:
+                logger.warning(
+                    "답글 예약 실패 (브로커 장애): comment_id=%s, error=%s",
+                    comment_id,
+                    e,
+                )
+
+        transaction.on_commit(_schedule_reply)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
