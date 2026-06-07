@@ -7,6 +7,8 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.characters.models import Character
+from apps.posts.models import Post
+from apps.quests.models import Quest
 from apps.todos.models import Tag, Todo
 from apps.users.models import User
 
@@ -50,4 +52,23 @@ def todo(db, user: User, tag: Tag) -> Todo:
         tag=tag,
         content="테스트TODO",
         todo_date="2026-06-02",
+    )
+
+
+@pytest.fixture
+def quest(db, character: Character, todo: Todo) -> Quest:
+    return Quest.objects.create(
+        character=character,
+        todo=todo,
+        content="테스트 퀘스트",
+    )
+
+
+@pytest.fixture
+def post(db, character: Character, quest: Quest) -> Post:
+    return Post.objects.create(
+        character=character,
+        quest=quest,
+        content="테스트 게시글",
+        img_url="https://example.com/img.png",
     )

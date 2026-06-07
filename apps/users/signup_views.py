@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+import json
 import secrets
 import string
 from typing import Any
@@ -17,6 +18,7 @@ from django.utils import timezone
 from django.utils.crypto import constant_time_compare, salted_hmac
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+import redis as redis_lib
 
 from apps.users.models import User
 from apps.users.validators import (
@@ -31,11 +33,58 @@ from apps.users.validators import (
     validate_verification_code,
 )
 
-EMAIL_VERIFICATION_SESSION_KEY = "email_verification"
 VERIFICATION_EXPIRES_SECONDS = 180
 VERIFICATION_RESEND_SECONDS = 30
 VERIFICATION_VERIFIED_SECONDS = 600
 VERIFICATION_MAX_ATTEMPTS = 5
+
+
+def _get_redis() -> redis_lib.Redis:
+    return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+def _redis_key(email: str, purpose: str) -> str:
+    return f"email_verification:{email}:{purpose}"
+
+
+def _get_verification(email: str, purpose: str) -> dict[str, Any] | None:
+    raw = _get_redis().get(_redis_key(email, purpose))
+    if raw is None:
+        return None
+    return json.loads(raw)  # type: ignore[no-any-return]
+
+
+def _save_verification(
+    email: str, purpose: str, data: dict[str, Any], ttl: int
+) -> None:
+    _get_redis().set(_redis_key(email, purpose), json.dumps(data), ex=ttl)
+
+
+def _delete_verification(email: str, purpose: str) -> None:
+    _get_redis().delete(_redis_key(email, purpose))
+
+
+def _verified_token_key(token: str) -> str:
+    return f"email_verified:{token}"
+
+
+def _save_verified_token(token: str, email: str, purpose: str) -> None:
+    _get_redis().set(
+        _verified_token_key(token),
+        json.dumps({"email": email, "purpose": purpose}),
+        ex=VERIFICATION_VERIFIED_SECONDS,
+    )
+
+
+def _get_verified_token(token: str) -> dict[str, Any] | None:
+    raw = _get_redis().get(_verified_token_key(token))
+    if raw is None:
+        return None
+    return json.loads(raw)  # type: ignore[no-any-return]
+
+
+def _delete_verified_token(token: str) -> None:
+    _get_redis().delete(_verified_token_key(token))
 
 
 def _error_response(
@@ -98,12 +147,9 @@ def request_email_verification(request: HttpRequest) -> JsonResponse:
         return _error_response(409, "EMAIL_DUPLICATED")
 
     now = timezone.now()
-    current = request.session.get(EMAIL_VERIFICATION_SESSION_KEY)
-    if (
-        isinstance(current, dict)
-        and current.get("email") == email
-        and current.get("purpose") == purpose
-    ):
+
+    current = _get_verification(email, purpose)
+    if isinstance(current, dict):
         resend_available_at = datetime.fromisoformat(
             str(current["resend_available_at"]),
         )
@@ -113,16 +159,21 @@ def request_email_verification(request: HttpRequest) -> JsonResponse:
     code = _generate_code()
     expires_at = now + timedelta(seconds=VERIFICATION_EXPIRES_SECONDS)
     resend_available_at = now + timedelta(seconds=VERIFICATION_RESEND_SECONDS)
-    request.session[EMAIL_VERIFICATION_SESSION_KEY] = {
-        "email": email,
-        "purpose": purpose,
-        "code_hash": _hash_code(code),
-        "expires_at": expires_at.isoformat(),
-        "resend_available_at": resend_available_at.isoformat(),
-        "attempts": 0,
-        "verified_until": None,
-    }
-    request.session.modified = True
+
+    _save_verification(
+        email,
+        purpose,
+        {
+            "email": email,
+            "purpose": purpose,
+            "code_hash": _hash_code(code),
+            "expires_at": expires_at.isoformat(),
+            "resend_available_at": resend_available_at.isoformat(),
+            "attempts": 0,
+            "verified_until": None,
+        },
+        ttl=VERIFICATION_EXPIRES_SECONDS,
+    )
 
     send_mail(
         subject="[Mongle] 이메일 인증 코드",
@@ -152,7 +203,7 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
     except ValidationError as exc:
         return _validation_error_response(exc)
 
-    verification = request.session.get(EMAIL_VERIFICATION_SESSION_KEY)
+    verification = _get_verification(email, purpose)
     if not isinstance(verification, dict):
         return _error_response(400, "INVALID_VERIFICATION_CODE")
 
@@ -170,15 +221,24 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
     expected_hash = str(verification.get("code_hash", ""))
     if not constant_time_compare(expected_hash, _hash_code(code)):
         verification["attempts"] = attempts + 1
-        request.session[EMAIL_VERIFICATION_SESSION_KEY] = verification
-        request.session.modified = True
+        remaining = max(
+            1,
+            int(
+                (
+                    datetime.fromisoformat(str(verification["expires_at"]))
+                    - timezone.now()
+                ).total_seconds()
+            ),
+        )
+        _save_verification(email, purpose, verification, ttl=remaining)
         return _error_response(400, "INVALID_VERIFICATION_CODE")
 
+    _delete_verification(email, purpose)
+
+    verification_token = secrets.token_urlsafe(32)
+    _save_verified_token(verification_token, email, purpose)
+
     verified_until = timezone.now() + timedelta(seconds=VERIFICATION_VERIFIED_SECONDS)
-    verification["verified_until"] = verified_until.isoformat()
-    verification.pop("code_hash", None)
-    request.session[EMAIL_VERIFICATION_SESSION_KEY] = verification
-    request.session.modified = True
 
     return JsonResponse(
         {
@@ -186,6 +246,7 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
             "purpose": purpose.lower(),
             "verified": True,
             "verified_until": _isoformat(verified_until),
+            "verification_token": verification_token,
         },
     )
 
@@ -194,12 +255,19 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
 @require_POST
 def signup(request: HttpRequest) -> JsonResponse:
     try:
-        payload = _validate_signup_payload(parse_json_body(request))
+        body = parse_json_body(request)
+        payload = _validate_signup_payload(body)
     except ValidationError as exc:
         return _validation_error_response(exc)
 
-    verification = request.session.get(EMAIL_VERIFICATION_SESSION_KEY)
-    if not _is_signup_email_verified(verification, payload["email"]):
+    raw_token = body.get("verification_token")
+    verification_token = raw_token if isinstance(raw_token, str) and raw_token else ""
+    token_data = _get_verified_token(verification_token) if verification_token else None
+    if (
+        not token_data
+        or token_data.get("email") != payload["email"]
+        or token_data.get("purpose") != "SIGNUP"
+    ):
         return _error_response(400, "EMAIL_NOT_VERIFIED")
 
     if User.objects.filter(email=payload["email"]).exists():
@@ -215,8 +283,7 @@ def signup(request: HttpRequest) -> JsonResponse:
             is_aiconsent=payload["is_aiconsent"],
         )
 
-    request.session.pop(EMAIL_VERIFICATION_SESSION_KEY, None)
-    request.session.modified = True
+    _delete_verified_token(verification_token)
 
     return JsonResponse(
         {
@@ -265,14 +332,3 @@ def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError(errors)
 
     return payload
-
-
-def _is_signup_email_verified(verification: object, email: str) -> bool:
-    if not isinstance(verification, dict):
-        return False
-    if verification.get("email") != email or verification.get("purpose") != "SIGNUP":
-        return False
-    verified_until = verification.get("verified_until")
-    if not verified_until:
-        return False
-    return timezone.now() <= datetime.fromisoformat(str(verified_until))
