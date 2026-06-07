@@ -17,24 +17,30 @@ def health_check(request: object) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 
 
-# TODO: 추후 수정 필요
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health-check"),
     path(
-        "auth/email-verification",
-        signup_views.request_email_verification,
-        name="email-verification",
+        "api/v1/",
+        include(
+            [
+                path(
+                    "auth/email-verification",
+                    signup_views.request_email_verification,
+                    name="email-verification",
+                ),
+                path(
+                    "auth/email-verification/confirm",
+                    signup_views.confirm_email_verification,
+                    name="email-verification-confirm",
+                ),
+                path("auth/signup", signup_views.signup, name="signup"),
+                path("auth/", include("apps.users.urls")),
+                path("characters/", include("apps.characters.urls")),
+                path("todos/", include("apps.todos.urls")),
+                path("quests/", include("apps.quests.urls")),
+                path("posts/", include("apps.posts.urls")),
+            ]
+        ),
     ),
-    path(
-        "auth/email-verification/confirm",
-        signup_views.confirm_email_verification,
-        name="email-verification-confirm",
-    ),
-    path("auth/signup", signup_views.signup, name="signup"),
-    path("api/auth/", include("apps.users.urls")),
-    path("api/characters/", include("apps.characters.urls")),
-    path("api/todos/", include("apps.todos.urls")),
-    path("api/quests/", include("apps.quests.urls")),
-    path("api/posts/", include("apps.posts.urls")),
 ]
