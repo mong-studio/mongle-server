@@ -12,7 +12,7 @@ from apps.users.models import User
 def test_register_success() -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/register/",
+        "/api/v1/auth/register/",
         {"email": "new@test.com", "password": "password123", "user_name": "신규유저"},
         format="json",
     )
@@ -25,7 +25,7 @@ def test_register_success() -> None:
 def test_register_duplicate_email(user: User) -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/register/",
+        "/api/v1/auth/register/",
         {"email": "test@test.com", "password": "password123", "user_name": "중복"},
         format="json",
     )
@@ -36,7 +36,7 @@ def test_register_duplicate_email(user: User) -> None:
 def test_register_short_password() -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/register/",
+        "/api/v1/auth/register/",
         {"email": "short@test.com", "password": "1234", "user_name": "짧은비번"},
         format="json",
     )
@@ -47,7 +47,7 @@ def test_register_short_password() -> None:
 def test_login_success(user: User) -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/login/",
+        "/api/v1/auth/login/",
         {"email": "test@test.com", "password": "password123"},
         format="json",
     )
@@ -60,7 +60,7 @@ def test_login_success(user: User) -> None:
 def test_login_wrong_password(user: User) -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/login/",
+        "/api/v1/auth/login/",
         {"email": "test@test.com", "password": "wrongpassword"},
         format="json",
     )
@@ -71,7 +71,7 @@ def test_login_wrong_password(user: User) -> None:
 def test_login_nonexistent_email() -> None:
     client = APIClient()
     response = client.post(
-        "/api/auth/login/",
+        "/api/v1/auth/login/",
         {"email": "nobody@test.com", "password": "password123"},
         format="json",
     )
@@ -80,7 +80,7 @@ def test_login_nonexistent_email() -> None:
 
 @pytest.mark.django_db
 def test_me_authenticated(auth_client: APIClient, user: User) -> None:
-    response = auth_client.get("/api/auth/me/")
+    response = auth_client.get("/api/v1/auth/me/")
     assert response.status_code == 200
     assert response.json()["email"] == "test@test.com"
 
@@ -88,5 +88,5 @@ def test_me_authenticated(auth_client: APIClient, user: User) -> None:
 @pytest.mark.django_db
 def test_me_unauthenticated() -> None:
     client = APIClient()
-    response = client.get("/api/auth/me/")
+    response = client.get("/api/v1/auth/me/")
     assert response.status_code == 401
