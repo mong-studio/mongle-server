@@ -1,13 +1,10 @@
 from django.urls import path
-from rest_framework_simplejwt.views import (
-    TokenRefreshView,  # simplejwt가 제공하는 토큰 갱신 View
-)
 
-from apps.users.views import LoginView, MeView, RegisterView
+from apps.users.views import LoginView, LogoutView, MeView, RefreshView
 
 urlpatterns = [
-    path("register/", RegisterView.as_view(), name="auth-register"),
-    path("login/", LoginView.as_view(), name="auth-login"),
-    path("refresh/", TokenRefreshView.as_view(), name="auth-refresh"),
+    path("login", LoginView.as_view(), name="auth-login"),
     path("me/", MeView.as_view(), name="auth-me"),
+    path("token/refresh", RefreshView.as_view(), name="auth-token-refresh"),
+    path("logout", LogoutView.as_view(), name="auth-logout"),
 ]
