@@ -1,63 +1,116 @@
+from django.contrib.auth import authenticate
+from django.core.exceptions import ValidationError
+from django.http import HttpResponseBase
+from django.utils import timezone
 from rest_framework import status  # HTTP 상태코드 모음 (200, 201, 400 등)
 from rest_framework.permissions import AllowAny, IsAuthenticated  # 접근 권한 클래스
 from rest_framework.request import Request  # 타입 힌트용 Request 클래스
 from rest_framework.response import Response  # JSON 응답을 만드는 클래스
 from rest_framework.views import APIView  # DRF의 기본 View 클래스
-from rest_framework_simplejwt.tokens import RefreshToken  # JWT 토큰 생성 도구
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.tokens import AccessToken  # JWT 토큰 생성 도구
 
-from apps.users.serializers import LoginSerializer, RegisterSerializer, UserSerializer
+from apps.users.api_errors import error_response, validation_error_response
+from apps.users.models import RefreshToken as RefreshTokenRow, User
+from apps.users.rate_limit import client_ip, hit_rate_limit
+from apps.users.refresh_token_service import (
+    REFRESH_COOKIE_NAME,
+    clear_refresh_cookie,
+    issue_refresh_token,
+    revoke_refresh_token,
+    rotate_refresh_token,
+    set_refresh_cookie,
+    validate_refresh_token,
+)
+from apps.users.serializers import UserSerializer
+from apps.users.validators import (
+    collect_validated_fields,
+    validate_email,
+    validate_password,
+    validate_required_boolean,
+)
 
+ACCESS_TOKEN_LIFETIME_SECONDS = int(jwt_settings.ACCESS_TOKEN_LIFETIME.total_seconds())
 
-class RegisterView(APIView):
-    permission_classes = (AllowAny,)
-    # 기본 설정은 "로그인한 사람만 접근 가능"이지만
-    # 회원가입은 로그인 전에 하는 것이므로 누구나 접근 가능하도록 변경
-
-    def post(self, request: Request) -> Response:
-        serializer = RegisterSerializer(data=request.data)
-        # request.data: 앱이 보낸 JSON 데이터 (email, password, user_name 등)
-        # RegisterSerializer에 데이터를 넘겨서 유효성 검사 준비
-
-        serializer.is_valid(raise_exception=True)
-        # 유효성 검사 실행
-
-        user = serializer.save()
-        # 검증 통과 후 RegisterSerializer의 create() 메서드 호출 → DB에 유저 저장
-
-        refresh = RefreshToken.for_user(user)
-        # 새로 만든 유저의 JWT 토큰 발급
-        # refresh: 2주짜리 refresh 토큰
-        # refresh.access_token: 1시간짜리 access 토큰
-
-        return Response(
-            {
-                "user": UserSerializer(user).data,  # 유저 정보 JSON
-                "access": str(refresh.access_token),  # 이후 API 요청에 사용할 토큰
-                "refresh": str(refresh),  # 토큰 갱신에 사용할 토큰
-            },
-            status=status.HTTP_201_CREATED,
-        )
+# 로그인 brute-force 방어: 동일 IP에서 윈도우당 허용 시도 횟수.
+LOGIN_RATE_LIMIT = 10
+LOGIN_RATE_WINDOW_SECONDS = 60
 
 
+def _login_user_payload(user: User) -> dict[str, object]:
+    return {
+        "user_id": str(user.user_id),
+        "email": user.email,
+        "user_name": user.user_name,
+        "has_character": user.characters.exists(),
+    }
+
+
+# 로그인
 class LoginView(APIView):
-    permission_classes = (AllowAny,)  # 로그인도 당연히 누구나 접근 가능
+    permission_classes = (AllowAny,)
 
-    def post(self, request: Request) -> Response:
-        serializer = LoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        # LoginSerializer의 validate()에서 이메일+비밀번호 확인 후
-        # 검증된 user 객체가 validated_data["user"]에 담김
+    def post(self, request: Request) -> HttpResponseBase:
+        # 검증/인증 이전에 IP 단위로 시도 횟수를 제한해 brute-force를 막는다.
+        if hit_rate_limit(
+            f"login:{client_ip(request)}",
+            limit=LOGIN_RATE_LIMIT,
+            window_seconds=LOGIN_RATE_WINDOW_SECONDS,
+        ):
+            response = error_response(429, "LOGIN_RATE_LIMITED")
+            response["Retry-After"] = str(LOGIN_RATE_WINDOW_SECONDS)
+            return response
 
-        user = serializer.validated_data["user"]  # 검증된 유저 객체 꺼내기
-        refresh = RefreshToken.for_user(user)  # 해당 유저의 JWT 토큰 발급
+        try:
+            payload = self._validate_payload(request)
+        except ValidationError as exc:
+            return validation_error_response(exc)
 
-        return Response(
+        user = authenticate(
+            request, email=payload["email"], password=payload["password"]
+        )
+        # authenticate는 비밀번호 불일치·미존재·비활성 모두 None을 반환
+        # 계정 존재 여부를 노출하지 않기 위해 모두 동일한 에러 사용
+        if user is None:
+            return error_response(401, "INVALID_CREDENTIALS")
+
+        access_token = AccessToken.for_user(user)
+        response = Response(
             {
-                "user": UserSerializer(user).data,
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
+                "access_token": str(access_token),
+                "token_type": "Bearer",
+                "expires_in_seconds": ACCESS_TOKEN_LIFETIME_SECONDS,
+                "users": _login_user_payload(user),
             }
         )
+
+        # 자동로그인(remember_me)이면 영구 쿠키, 아니면 세션 쿠키로 항상 발급한다.
+        # 세션 쿠키도 새로고침에는 유지되므로 로그인이 즉시 풀리지 않음
+        remember_me = bool(payload["remember_me"])
+        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        raw_token, _ = issue_refresh_token(
+            user, device_info=user_agent, persistent=remember_me
+        )
+        set_refresh_cookie(response, raw_token, persistent=remember_me)
+
+        return response
+
+    @staticmethod
+    def _validate_payload(request: Request) -> dict[str, object]:
+        """필드별 검증 에러를 모아 한 번에 반환"""
+        if not isinstance(request.data, dict):
+            raise ValidationError({"body": ["JSON object를 입력해 주세요."]})
+        validators: tuple[tuple[str, object], ...] = (
+            ("email", lambda: validate_email(request.data.get("email"))),
+            ("password", lambda: validate_password(request.data.get("password"))),
+            (
+                "remember_me",
+                lambda: validate_required_boolean(
+                    request.data.get("remember_me"), "remember_me"
+                ),
+            ),
+        )
+        return collect_validated_fields(validators)  # type: ignore[arg-type]
 
 
 class MeView(APIView):
@@ -67,3 +120,55 @@ class MeView(APIView):
     def get(self, request: Request) -> Response:
         # request.user: JWT 토큰에서 자동으로 추출한 현재 로그인 유저 객체
         return Response(UserSerializer(request.user).data)
+
+
+class RefreshView(APIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request: Request) -> HttpResponseBase:
+        raw_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if not raw_token:
+            return error_response(401, "INVALID_REFRESH_TOKEN")
+
+        row = validate_refresh_token(raw_token)
+        if row is None:
+            return error_response(401, "INVALID_REFRESH_TOKEN")
+
+        if row.expires_at <= timezone.now():
+            RefreshTokenRow.objects.filter(pk=row.pk).delete()
+            return error_response(401, "REFRESH_TOKEN_EXPIRED")
+
+        if not row.user.is_active:
+            RefreshTokenRow.objects.filter(pk=row.pk).delete()
+            return error_response(401, "INVALID_REFRESH_TOKEN")
+
+        user = row.user
+        persistent = row.persistent  # 회전 후에도 세션/영구 성격을 유지하려고 미리 보관
+        rotated = rotate_refresh_token(row)
+        if rotated is None:
+            # 동시 요청이 먼저 rotate함 — 재사용 시도로 간주
+            return error_response(401, "INVALID_REFRESH_TOKEN")
+        new_raw_token, _ = rotated
+        access_token = AccessToken.for_user(user)
+
+        response = Response(
+            {
+                "access_token": str(access_token),
+                "expires_in_seconds": ACCESS_TOKEN_LIFETIME_SECONDS,
+            }
+        )
+        set_refresh_cookie(response, new_raw_token, persistent=persistent)
+        return response
+
+
+class LogoutView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request: Request) -> HttpResponseBase:
+        raw_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if raw_token:
+            revoke_refresh_token(raw_token)
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        clear_refresh_cookie(response)
+        return response

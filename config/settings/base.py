@@ -24,6 +24,12 @@ env = environ.Env(
     EMAIL_HOST_USER=(str, ""),
     EMAIL_HOST_PASSWORD=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "noreply@mongle.local"),
+    # 브라우저에서 직접 호출을 허용할 프론트엔드 origin 목록.
+    # 형식: scheme://host[:port] (쉼표로 구분). dev 기본값은 로컬 프론트.
+    DJANGO_CORS_ALLOWED_ORIGINS=(
+        list,
+        ["http://localhost:3000", "http://localhost:5173"],
+    ),
 )
 
 
@@ -31,6 +37,15 @@ environ.Env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
+
+# CORS: 브라우저가 다른 origin에서 이 API를 호출할 수 있는 화이트리스트.
+# refresh token을 HttpOnly 쿠키로 cross-origin 흐름(로그인/재발급/로그아웃)에서
+# 주고받으므로 CORS_ALLOW_CREDENTIALS=True가 필요하다. 이 값이 없으면 브라우저가
+# credentialed 요청에서 Set-Cookie를 저장하지 않고 쿠키도 전송하지 않는다.
+# (프론트는 fetch에 credentials: "include"를 함께 보내야 한다.)
+# 기본 CORS_ALLOW_HEADERS에 "authorization"이 포함되어 Bearer 토큰 전송도 가능.
+CORS_ALLOWED_ORIGINS = env("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_CREDENTIALS = True
 
 INSTALLED_APPS = [
     # Django 기본 앱 (건드리지 않음)
@@ -41,6 +56,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",  # 일회성 메시지 (플래시 메시지)
     "django.contrib.staticfiles",  # 정적 파일 (CSS, JS 등) 관리
     # 외부 패키지
+    "corsheaders",  # 브라우저 cross-origin 요청(CORS) 헤더 처리
     "rest_framework",
     "rest_framework_simplejwt",
     "django_celery_beat",
@@ -55,6 +71,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     # 모든 요청/응답을 처리하는 중간 계층 (순서가 중요)
     "django.middleware.security.SecurityMiddleware",  # 보안 헤더 추가
+    "corsheaders.middleware.CorsMiddleware",  # CORS 헤더 추가 (CommonMiddleware보다 위)
     "django.contrib.sessions.middleware.SessionMiddleware",  # 세션 처리
     "django.middleware.common.CommonMiddleware",  # URL 슬래시 처리 등
     "django.middleware.csrf.CsrfViewMiddleware",  # CSRF 공격 방어
@@ -154,6 +171,16 @@ SIMPLE_JWT = {
 
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+
+# 캐시: 레이트 리밋 카운터 등을 여러 워커 프로세스 간에 공유하기 위해 Redis 사용.
+# (Django 기본 LocMemCache는 프로세스별이라 멀티워커에서 카운트가 분산된다.)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    },
+}
+
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TIMEZONE = "Asia/Seoul"
@@ -170,5 +197,9 @@ CELERY_BEAT_SCHEDULE = {
     "reset-image-gen-count": {
         "task": "apps.characters.tasks.reset_image_gen_count",
         "schedule": crontab(hour=0, minute=2),
+    },
+    "cleanup-expired-refresh-tokens": {
+        "task": "apps.users.tasks.cleanup_expired_refresh_tokens",
+        "schedule": crontab(hour=0, minute=3),
     },
 }

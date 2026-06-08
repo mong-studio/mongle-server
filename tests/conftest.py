@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+from django.core.cache import cache
 import pytest
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -11,6 +14,14 @@ from apps.posts.models import Post
 from apps.quests.models import Quest
 from apps.todos.models import Tag, Todo
 from apps.users.models import User
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> Iterator[None]:
+    """테스트 간 캐시(레이트 리밋 카운터 등)를 격리한다."""
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture

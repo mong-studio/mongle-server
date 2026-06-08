@@ -47,3 +47,11 @@ def send_reflection_notification() -> None:
                 for pk in pk_chunk
             ]
         )
+
+
+@shared_task
+def cleanup_expired_refresh_tokens() -> None:
+    """[스케줄] 매일 00:03 실행 — 만료된 refresh token 행 일괄 삭제."""
+    from apps.users.models import RefreshToken
+
+    RefreshToken.objects.filter(expires_at__lt=timezone.now()).delete()
