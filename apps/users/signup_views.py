@@ -20,8 +20,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import redis as redis_lib
 
+from apps.users.api_errors import error_response, validation_error_response
 from apps.users.models import User
 from apps.users.validators import (
+    collect_validated_fields,
     parse_json_body,
     validate_email,
     validate_optional_birth,
@@ -87,35 +89,6 @@ def _delete_verified_token(token: str) -> None:
     _get_redis().delete(_verified_token_key(token))
 
 
-def _error_response(
-    status: int,
-    message: str,
-    details: dict[str, list[str]] | None = None,
-) -> JsonResponse:
-    return JsonResponse(
-        {
-            "error": {
-                "code": status,
-                "message": message,
-                "details": details or {},
-            },
-        },
-        status=status,
-    )
-
-
-def _validation_error_response(exc: ValidationError) -> JsonResponse:
-    details: dict[str, list[str]]
-    if hasattr(exc, "message_dict"):
-        details = {
-            field: [str(message) for message in messages]
-            for field, messages in exc.message_dict.items()
-        }
-    else:
-        details = {"non_field_errors": [str(message) for message in exc.messages]}
-    return _error_response(400, "VALIDATION_ERROR", details)
-
-
 def _hash_code(code: str) -> str:
     return salted_hmac(
         "email-verification-code",
@@ -141,10 +114,10 @@ def request_email_verification(request: HttpRequest) -> JsonResponse:
         email = validate_email(body.get("email"))
         purpose = validate_purpose(body.get("purpose"))
     except ValidationError as exc:
-        return _validation_error_response(exc)
+        return validation_error_response(exc)
 
     if purpose == "SIGNUP" and User.objects.filter(email=email).exists():
-        return _error_response(409, "EMAIL_DUPLICATED")
+        return error_response(409, "EMAIL_DUPLICATED")
 
     now = timezone.now()
 
@@ -154,7 +127,7 @@ def request_email_verification(request: HttpRequest) -> JsonResponse:
             str(current["resend_available_at"]),
         )
         if now < resend_available_at:
-            return _error_response(429, "EMAIL_VERIFICATION_RATE_LIMITED")
+            return error_response(429, "EMAIL_VERIFICATION_RATE_LIMITED")
 
     code = _generate_code()
     expires_at = now + timedelta(seconds=VERIFICATION_EXPIRES_SECONDS)
@@ -201,22 +174,22 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
         purpose = validate_purpose(body.get("purpose"))
         code = validate_verification_code(body.get("code"))
     except ValidationError as exc:
-        return _validation_error_response(exc)
+        return validation_error_response(exc)
 
     verification = _get_verification(email, purpose)
     if not isinstance(verification, dict):
-        return _error_response(400, "INVALID_VERIFICATION_CODE")
+        return error_response(400, "INVALID_VERIFICATION_CODE")
 
     if verification.get("email") != email or verification.get("purpose") != purpose:
-        return _error_response(400, "INVALID_VERIFICATION_CODE")
+        return error_response(400, "INVALID_VERIFICATION_CODE")
 
     attempts = int(verification.get("attempts", 0))
     if attempts >= VERIFICATION_MAX_ATTEMPTS:
-        return _error_response(429, "VERIFICATION_ATTEMPT_LIMITED")
+        return error_response(429, "VERIFICATION_ATTEMPT_LIMITED")
 
     expires_at = datetime.fromisoformat(str(verification["expires_at"]))
     if timezone.now() > expires_at:
-        return _error_response(400, "VERIFICATION_CODE_EXPIRED")
+        return error_response(400, "VERIFICATION_CODE_EXPIRED")
 
     expected_hash = str(verification.get("code_hash", ""))
     if not constant_time_compare(expected_hash, _hash_code(code)):
@@ -231,7 +204,7 @@ def confirm_email_verification(request: HttpRequest) -> JsonResponse:
             ),
         )
         _save_verification(email, purpose, verification, ttl=remaining)
-        return _error_response(400, "INVALID_VERIFICATION_CODE")
+        return error_response(400, "INVALID_VERIFICATION_CODE")
 
     _delete_verification(email, purpose)
 
@@ -258,7 +231,7 @@ def signup(request: HttpRequest) -> JsonResponse:
         body = parse_json_body(request)
         payload = _validate_signup_payload(body)
     except ValidationError as exc:
-        return _validation_error_response(exc)
+        return validation_error_response(exc)
 
     raw_token = body.get("verification_token")
     verification_token = raw_token if isinstance(raw_token, str) and raw_token else ""
@@ -268,10 +241,10 @@ def signup(request: HttpRequest) -> JsonResponse:
         or token_data.get("email") != payload["email"]
         or token_data.get("purpose") != "SIGNUP"
     ):
-        return _error_response(400, "EMAIL_NOT_VERIFIED")
+        return error_response(400, "EMAIL_NOT_VERIFIED")
 
     if User.objects.filter(email=payload["email"]).exists():
-        return _error_response(409, "EMAIL_DUPLICATED")
+        return error_response(409, "EMAIL_DUPLICATED")
 
     with transaction.atomic():
         user = User.objects.create_user(
@@ -297,9 +270,6 @@ def signup(request: HttpRequest) -> JsonResponse:
 
 
 def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    errors: dict[str, list[str]] = {}
-
     validators: tuple[tuple[str, Callable[[], Any]], ...] = (
         ("email", lambda: validate_email(body.get("email"))),
         ("password", lambda: validate_password(body.get("password"))),
@@ -314,21 +284,4 @@ def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
             ),
         ),
     )
-    for field, validator in validators:
-        try:
-            payload[field] = validator()
-        except ValidationError as exc:
-            if hasattr(exc, "message_dict"):
-                errors.update(
-                    {
-                        key: [str(message) for message in messages]
-                        for key, messages in exc.message_dict.items()
-                    },
-                )
-            else:
-                errors[field] = [str(message) for message in exc.messages]
-
-    if errors:
-        raise ValidationError(errors)
-
-    return payload
+    return collect_validated_fields(validators)

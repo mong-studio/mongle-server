@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 import json
 import re
@@ -114,3 +115,27 @@ def validate_required_boolean(value: object, field: str) -> bool:
     if not isinstance(value, bool):
         raise ValidationError({field: ["boolean 값을 입력해 주세요."]})
     return value
+
+
+def collect_validated_fields(
+    validators: tuple[tuple[str, Callable[[], object]], ...],
+) -> dict[str, object]:
+    """필드별 validator를 실행해 에러를 모아 한 번에 ValidationError로 raise."""
+    payload: dict[str, object] = {}
+    errors: dict[str, list[str]] = {}
+    for field, validator in validators:
+        try:
+            payload[field] = validator()
+        except ValidationError as exc:
+            if hasattr(exc, "message_dict"):
+                errors.update(
+                    {
+                        key: [str(message) for message in messages]
+                        for key, messages in exc.message_dict.items()
+                    },
+                )
+            else:
+                errors[field] = [str(message) for message in exc.messages]
+    if errors:
+        raise ValidationError(errors)
+    return payload
