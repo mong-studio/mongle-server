@@ -51,7 +51,9 @@ def test_refresh_success_rotates_token(user: User) -> None:
 
 @pytest.mark.django_db
 def test_refresh_persistent_token_keeps_persistent_cookie(user: User) -> None:
-    """영구(자동로그인) 토큰을 재발급하면 새 쿠키도 영구 쿠키여야 한다."""
+    """영구(자동로그인) 토큰을 재발급하면
+    새 쿠키도 영구 쿠키여야 한다.
+    """
     raw, _ = issue_refresh_token(user, persistent=True)
     response = _client_with_cookie(raw).post(REFRESH_URL)
     assert response.status_code == 200
@@ -60,7 +62,9 @@ def test_refresh_persistent_token_keeps_persistent_cookie(user: User) -> None:
 
 @pytest.mark.django_db
 def test_refresh_session_token_keeps_session_cookie(user: User) -> None:
-    """세션 토큰을 재발급해도 세션 쿠키 성격(만료시각 없음)을 유지해야 한다."""
+    """세션 토큰을 재발급해도
+    세션 쿠키 성격(만료시각 없음)을 유지해야 한다.
+    """
     raw, _ = issue_refresh_token(user, persistent=False)
     response = _client_with_cookie(raw).post(REFRESH_URL)
     assert response.status_code == 200
@@ -70,7 +74,9 @@ def test_refresh_session_token_keeps_session_cookie(user: User) -> None:
 
 @pytest.mark.django_db
 def test_refresh_without_cookie(db: None) -> None:
-    """리프레시 쿠키 없이 요청하면 401 INVALID_REFRESH_TOKEN을 반환한다."""
+    """리프레시 쿠키 없이 요청하면
+    401 INVALID_REFRESH_TOKEN을 반환한다.
+    """
     response = APIClient().post(REFRESH_URL)
     assert response.status_code == 401
     assert response.json()["error"]["message"] == "INVALID_REFRESH_TOKEN"
@@ -78,7 +84,9 @@ def test_refresh_without_cookie(db: None) -> None:
 
 @pytest.mark.django_db
 def test_refresh_with_forged_token(db: None) -> None:
-    """위조된 리프레시 토큰으로 요청하면 401 INVALID_REFRESH_TOKEN을 반환한다."""
+    """위조된 리프레시 토큰으로 요청하면
+    401 INVALID_REFRESH_TOKEN을 반환한다.
+    """
     response = _client_with_cookie("forged-token").post(REFRESH_URL)
     assert response.status_code == 401
     assert response.json()["error"]["message"] == "INVALID_REFRESH_TOKEN"
@@ -124,7 +132,8 @@ def test_refresh_concurrent_rotation_returns_401(
     rotate_refresh_token이 None을 반환하는 경우 401을 반환한다."""
     raw, _ = issue_refresh_token(user)
 
-    # 유효한 행이 존재해 validate는 통과하되, rotate만 None을 반환하도록 강제
+    # 유효한 행이 존재해 validate는 통과하되,
+    # rotate만 None을 반환하도록 강제
     monkeypatch.setattr("apps.users.views.rotate_refresh_token", lambda row: None)
 
     response = _client_with_cookie(raw).post(REFRESH_URL)
