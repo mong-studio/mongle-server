@@ -84,9 +84,10 @@ class RefreshToken(models.Model):
         on_delete=models.CASCADE,
         related_name="refresh_tokens",
     )
-    token_hash = models.CharField(max_length=255)
+    token_hash = models.CharField(max_length=255, unique=True)
     device_info = models.CharField(max_length=255)
     expires_at = models.DateTimeField()
+    persistent = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
