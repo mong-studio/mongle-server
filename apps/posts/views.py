@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = Post.objects.all().order_by("-created_at")
+    queryset = Post.objects.prefetch_related("comments").order_by("-created_at")
 
 
 class PostDetailView(generics.RetrieveAPIView):

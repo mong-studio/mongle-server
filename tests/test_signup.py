@@ -6,6 +6,7 @@ from typing import Any
 from django.core import mail
 from django.test import Client, override_settings
 from django.utils import timezone
+import fakeredis
 import pytest
 
 from apps.users import signup_views as account_views
@@ -22,16 +23,32 @@ def post_json(client: Client, path: str, payload: dict[str, Any]) -> Any:
     )
 
 
+@pytest.fixture(autouse=True)
+def fake_redis_store(monkeypatch: pytest.MonkeyPatch) -> fakeredis.FakeRedis:
+    """
+    Redis 연결을 fakeredis로 교체하는 픽스처.
+
+    signup_views가 세션 대신 Redis를 사용하도록 변경되었기 때문에
+    테스트에서도 실제 Redis 대신 인메모리 fakeredis를 사용한다.
+    autouse=True 로 이 파일의 모든 테스트에 자동 적용된다.
+    """
+    server = fakeredis.FakeServer()
+    fake = fakeredis.FakeRedis(server=server, decode_responses=True)
+    monkeypatch.setattr(account_views, "_get_redis", lambda: fake)
+    return fake
+
+
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-def test_email_verification_request_stores_session_and_sends_code(
+def test_email_verification_request_stores_state_and_sends_code(
     monkeypatch: pytest.MonkeyPatch,
+    fake_redis_store: fakeredis.FakeRedis,
 ) -> None:
     monkeypatch.setattr(account_views, "_generate_code", lambda: "ABCDEF")
     client = Client()
 
     response = post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "USER@example.com", "purpose": "SIGNUP"},
     )
 
@@ -42,7 +59,11 @@ def test_email_verification_request_stores_session_and_sends_code(
     }
     assert mail.outbox[0].to == ["user@example.com"]
     assert "ABCDEF" in mail.outbox[0].body
-    verification = client.session["email_verification"]
+
+    # 세션 대신 Redis에 저장됐는지 확인
+    raw = fake_redis_store.get("email_verification:user@example.com:SIGNUP")
+    assert raw is not None
+    verification = json.loads(raw)
     assert verification["email"] == "user@example.com"
     assert verification["purpose"] == "SIGNUP"
 
@@ -57,7 +78,7 @@ def test_email_verification_request_rejects_duplicated_email() -> None:
 
     response = post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "user@example.com", "purpose": "SIGNUP"},
     )
 
@@ -73,8 +94,8 @@ def test_email_verification_request_rate_limits_resend(
     client = Client()
     payload = {"email": "user@example.com", "purpose": "SIGNUP"}
 
-    first_response = post_json(client, "/auth/email-verification", payload)
-    second_response = post_json(client, "/auth/email-verification", payload)
+    first_response = post_json(client, "/api/v1/auth/email-verification", payload)
+    second_response = post_json(client, "/api/v1/auth/email-verification", payload)
 
     assert first_response.status_code == 201
     assert second_response.status_code == 429
@@ -86,26 +107,33 @@ def test_email_verification_request_rate_limits_resend(
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_confirm_marks_email_verified(
     monkeypatch: pytest.MonkeyPatch,
+    fake_redis_store: fakeredis.FakeRedis,
 ) -> None:
     monkeypatch.setattr(account_views, "_generate_code", lambda: "ABCDEF")
     client = Client()
     post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "user@example.com", "purpose": "SIGNUP"},
     )
 
     response = post_json(
         client,
-        "/auth/email-verification/confirm",
+        "/api/v1/auth/email-verification/confirm",
         {"email": "user@example.com", "purpose": "SIGNUP", "code": "ABCDEF"},
     )
 
     assert response.status_code == 200
-    assert response.json()["verified"] is True
-    verification = client.session["email_verification"]
-    assert verification["verified_until"] is not None
-    assert "code_hash" not in verification
+    body = response.json()
+    assert body["verified"] is True
+    # confirm 완료 후 verification_token이 발급되는지 확인
+    assert "verification_token" in body
+    assert body["verification_token"]
+
+    # email 기반 키는 삭제되고 token 기반 키가 생성됐는지 확인
+    assert fake_redis_store.get("email_verification:user@example.com:SIGNUP") is None
+    token_key = f"email_verified:{body['verification_token']}"
+    assert fake_redis_store.get(token_key) is not None
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -116,13 +144,13 @@ def test_email_verification_confirm_rejects_invalid_code(
     client = Client()
     post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "user@example.com", "purpose": "SIGNUP"},
     )
 
     response = post_json(
         client,
-        "/auth/email-verification/confirm",
+        "/api/v1/auth/email-verification/confirm",
         {"email": "user@example.com", "purpose": "SIGNUP", "code": "ZZZZZZ"},
     )
 
@@ -133,25 +161,30 @@ def test_email_verification_confirm_rejects_invalid_code(
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_confirm_rejects_expired_code(
     monkeypatch: pytest.MonkeyPatch,
+    fake_redis_store: fakeredis.FakeRedis,
 ) -> None:
     monkeypatch.setattr(account_views, "_generate_code", lambda: "ABCDEF")
     client = Client()
     post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "user@example.com", "purpose": "SIGNUP"},
     )
-    session = client.session
-    verification = session["email_verification"]
+
+    # Redis에 저장된 인증 상태의 만료 시간을 과거로 변경
+    raw = fake_redis_store.get("email_verification:user@example.com:SIGNUP")
+    assert raw is not None
+    verification = json.loads(raw)
     verification["expires_at"] = (
         timezone.now() - timezone.timedelta(seconds=1)
     ).isoformat()
-    session["email_verification"] = verification
-    session.save()
+    fake_redis_store.set(
+        "email_verification:user@example.com:SIGNUP", json.dumps(verification)
+    )
 
     response = post_json(
         client,
-        "/auth/email-verification/confirm",
+        "/api/v1/auth/email-verification/confirm",
         {"email": "user@example.com", "purpose": "SIGNUP", "code": "ABCDEF"},
     )
 
@@ -160,25 +193,27 @@ def test_email_verification_confirm_rejects_expired_code(
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-def test_signup_creates_user_and_clears_verification_session(
+def test_signup_creates_user_and_clears_verification_state(
     monkeypatch: pytest.MonkeyPatch,
+    fake_redis_store: fakeredis.FakeRedis,
 ) -> None:
     monkeypatch.setattr(account_views, "_generate_code", lambda: "ABCDEF")
     client = Client()
     post_json(
         client,
-        "/auth/email-verification",
+        "/api/v1/auth/email-verification",
         {"email": "USER@example.com", "purpose": "SIGNUP"},
     )
-    post_json(
+    confirm_response = post_json(
         client,
-        "/auth/email-verification/confirm",
+        "/api/v1/auth/email-verification/confirm",
         {"email": "user@example.com", "purpose": "SIGNUP", "code": "ABCDEF"},
     )
+    verification_token = confirm_response.json()["verification_token"]
 
     response = post_json(
         client,
-        "/auth/signup",
+        "/api/v1/auth/signup",
         {
             "email": "USER@example.com",
             "password": "password123!",
@@ -186,6 +221,7 @@ def test_signup_creates_user_and_clears_verification_session(
             "job": "사무직",
             "birth": "1999-07-22",
             "is_aiconsent": False,
+            "verification_token": verification_token,
         },
     )
 
@@ -199,7 +235,9 @@ def test_signup_creates_user_and_clears_verification_session(
     assert user.job == "사무직"
     assert user.birth.isoformat() == "1999-07-22"
     assert user.is_aiconsent is False
-    assert "email_verification" not in client.session
+
+    # 회원가입 완료 후 verification_token 삭제 확인
+    assert fake_redis_store.get(f"email_verified:{verification_token}") is None
 
 
 def test_signup_rejects_unverified_email() -> None:
@@ -207,7 +245,7 @@ def test_signup_rejects_unverified_email() -> None:
 
     response = post_json(
         client,
-        "/auth/signup",
+        "/api/v1/auth/signup",
         {
             "email": "user@example.com",
             "password": "password123!",
@@ -225,7 +263,7 @@ def test_signup_validates_password_and_user_name() -> None:
 
     response = post_json(
         client,
-        "/auth/signup",
+        "/api/v1/auth/signup",
         {
             "email": "user@example.com",
             "password": "password",
