@@ -18,8 +18,8 @@ class PostSerializer(serializers.ModelSerializer):
         fields = (
             "post_id",
             "character",
-            "image_url",
-            "caption",
+            "img_url",
+            "content",
             "comments",
             "created_at",
         )

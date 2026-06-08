@@ -19,6 +19,9 @@ dependencies = [
     "mysqlclient>=2.2.4",
     "djangorestframework>=3.15,<4.0",
     "djangorestframework-simplejwt>=5.3,<6.0",
+    "celery>=5.6.3",
+    "redis>=8.0.0",
+    "django-celery-beat>=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +29,7 @@ dev = [
     "commitizen>=3.29.0",
     "django-stubs>=5.1.0",
     "djangorestframework-stubs>=3.15.0",
+    "fakeredis>=2.0",
     "mypy>=1.10",
     "pre-commit>=3.8.0",
     "pytest>=8.0",
@@ -128,7 +132,17 @@ ignore_errors = true
 module = [
     "apps.*.serializers",
     "apps.*.views",
+    "apps.*.tasks",
 ]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["celery.*"]
+ignore_missing_imports = true
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["config.celery", "config.settings.base"]
 ignore_errors = true
 
 [tool.commitizen]

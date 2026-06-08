@@ -25,12 +25,22 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
 
     env:
       DJANGO_SECRET_KEY: ci-secret-key
       DJANGO_DEBUG: "False"
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
       DATABASE_URL: mysql://mongle:mongle@127.0.0.1:3306/mongle
+      REDIS_URL: redis://localhost:6379/0
 
     steps:
       - name: Checkout
