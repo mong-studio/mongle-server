@@ -3,16 +3,23 @@ import binascii
 from datetime import datetime
 import uuid
 
+from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
-from rest_framework import generics  # CRUD를 자동으로 처리해주는 DRF 제네릭 View
+from rest_framework import (
+    generics,  # CRUD를 자동으로 처리해주는 DRF 제네릭 View
+    status,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.serializers import ValidationError
+from rest_framework.views import APIView
 
+from apps.characters.ai_client import CharacterAIClient, CharacterAIClientError
 from apps.characters.models import Character
 from apps.characters.serializers import (
     CharacterDetailSerializer,
+    CharacterGenerateRequestSerializer,
     CharacterListItemSerializer,
     CharacterSerializer,
 )
@@ -20,6 +27,7 @@ from apps.todos.models import Todo
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
+MAX_ACTIVE_CHARACTERS = 10
 
 
 def encode_cursor(created_at: datetime, character_id: uuid.UUID) -> str:
@@ -126,3 +134,69 @@ class CharacterDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Character.objects.filter(user=self.request.user).prefetch_related(
             "quests__todo"
         )
+
+
+class CharacterGenerateAIView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request) -> Response:
+        active_count = Character.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).count()
+        if active_count >= MAX_ACTIVE_CHARACTERS:
+            return Response(
+                {"error": "캐릭터는 최대 10명까지 생성할 수 있습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CharacterGenerateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        source_image_url = data.get("source_image_url") or None
+
+        try:
+            result = _character_ai_client().create(
+                user_id=str(request.user.user_id),
+                name=data["name"],
+                persona=data["persona"],
+                personality_keywords=data.get("personality_keywords", []),
+                source_image_url=source_image_url,
+            )
+        except CharacterAIClientError as err:
+            return Response({"error": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        character = Character.objects.create(
+            user=request.user,
+            character_name=result.get("name") or data["name"],
+            origin_img_url=_safe_model_url(source_image_url),
+            gen_img_url=result.get("image_url") or "",
+            persona=result.get("persona") or data["persona"],
+        )
+        return Response(
+            {
+                "character_id": str(character.character_id),
+                "name": character.character_name,
+                "persona": character.persona,
+                "personality": result.get("personality", ""),
+                "speech_style": result.get("speech_style", ""),
+                "background": result.get("background", ""),
+                "image_url": character.gen_img_url,
+                "source_image_url": source_image_url,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _character_ai_client() -> CharacterAIClient:
+    return CharacterAIClient(
+        base_url=settings.MONGLE_AI_API_BASE,
+        api_key=settings.MONGLE_AI_API_KEY,
+        timeout_seconds=settings.MONGLE_AI_TIMEOUT_SECONDS,
+    )
+
+
+def _safe_model_url(value: str | None) -> str:
+    if not value or len(value) > 500:
+        return ""
+    return value

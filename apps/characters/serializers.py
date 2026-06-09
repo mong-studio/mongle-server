@@ -5,6 +5,22 @@ from apps.quests.models import Quest
 from apps.todos.models import Todo
 
 
+class CharacterGenerateRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=50)
+    persona = serializers.CharField()
+    personality_keywords = serializers.ListField(
+        child=serializers.CharField(),
+        max_length=3,
+        required=False,
+        allow_empty=True,
+    )
+    source_image_url = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+
 class CharacterListItemSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
     active_quest_count = serializers.IntegerField(read_only=True)

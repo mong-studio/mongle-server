@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from rest_framework.test import APIClient
@@ -177,3 +178,61 @@ def test_character_detail_not_found(auth_client: APIClient) -> None:
         "/api/v1/characters/00000000-0000-0000-0000-000000000000/"
     )
     assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_character_generate_uses_ai_bridge_and_persists(
+    auth_client: APIClient,
+    user: User,
+) -> None:
+    """웹은 Django character API를 호출하고, Django가 mongle-ai 결과를 DB에 저장한다."""
+    with patch("apps.characters.views._character_ai_client") as factory:
+        factory.return_value.create.return_value = {
+            "name": "몽글이",
+            "persona": "용감한 탐험가",
+            "personality": "용감함",
+            "speech_style": "다정한 반말",
+            "background": "숲에서 온 친구",
+            "image_url": "https://s3.example.com/characters/mongle.png",
+            "source_image_url": None,
+        }
+
+        response = auth_client.post(
+            "/api/v1/characters/generate/",
+            data={
+                "name": "몽글이",
+                "persona": "용감한 탐험가",
+                "personality_keywords": ["용감한"],
+                "source_image_url": None,
+            },
+            format="json",
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["name"] == "몽글이"
+    assert payload["image_url"] == "https://s3.example.com/characters/mongle.png"
+    assert Character.objects.count() == 1
+    character = Character.objects.get()
+    assert character.user == user
+    assert character.character_name == "몽글이"
+    assert character.gen_img_url == "https://s3.example.com/characters/mongle.png"
+    factory.return_value.create.assert_called_once_with(
+        user_id=str(user.user_id),
+        name="몽글이",
+        persona="용감한 탐험가",
+        personality_keywords=["용감한"],
+        source_image_url=None,
+    )
+
+
+@pytest.mark.django_db
+def test_character_generate_requires_authentication() -> None:
+    """캐릭터 생성 AI 브릿지는 로그인된 사용자만 호출할 수 있다."""
+    client = APIClient()
+    response = client.post(
+        "/api/v1/characters/generate/",
+        data={"name": "몽글이", "persona": "용감한 탐험가"},
+        format="json",
+    )
+    assert response.status_code == 401

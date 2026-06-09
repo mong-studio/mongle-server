@@ -1,4 +1,4 @@
-"""mongle-ai TODO / quest API bridge."""
+"""mongle-ai character API bridge."""
 
 from __future__ import annotations
 
@@ -10,56 +10,41 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 
-class TodoAIClientError(RuntimeError):
+class CharacterAIClientError(RuntimeError):
     """Raised when mongle-ai returns an error or invalid payload."""
 
 
 @dataclass
-class TodoAIClient:
+class CharacterAIClient:
     base_url: str
     api_key: str
     timeout_seconds: float = 15.0
 
-    def generate(self, *, user_id: str, prompt: str, today: str) -> dict[str, Any]:
-        payload = {"user_id": user_id, "prompt": prompt, "today": today}
-        return self._post("/v1/todo/generate", payload)
-
-    def chat(
-        self, *, user_id: str, message: str, today: str, thread_id: str | None
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "mode": "multi",
-            "user_id": user_id,
-            "message": message,
-            "today": today,
-        }
-        if thread_id:
-            payload["thread_id"] = thread_id
-        return self._post("/v1/todo/chat", payload)
-
-    def generate_quests(
+    def create(
         self,
         *,
-        todos: list[dict[str, Any]],
-        characters: list[dict[str, Any]],
-        remaining_daily_quota: int,
+        user_id: str,
+        name: str,
+        persona: str,
+        personality_keywords: list[str],
+        source_image_url: str | None,
     ) -> dict[str, Any]:
         return self._post(
-            "/v1/quest/generate",
+            "/v1/character",
             {
-                "todos": todos,
-                "characters": characters,
-                "remaining_daily_quota": remaining_daily_quota,
-                "shuffle_seed": None,
+                "user_id": user_id,
+                "name": name,
+                "persona": persona,
+                "personality_keywords": personality_keywords,
+                "source_image_url": source_image_url,
             },
         )
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         parsed_base_url = urlparse(self.base_url)
         if parsed_base_url.scheme not in {"http", "https"}:
-            raise TodoAIClientError("mongle-ai base URL must use http or https")
+            raise CharacterAIClientError("mongle-ai base URL must use http or https")
 
-        raw = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
             "X-Request-Id": str(uuid4()),
@@ -67,9 +52,10 @@ class TodoAIClient:
         if self.api_key:
             headers["X-API-Key"] = self.api_key
             headers["X-Internal-Service-Token"] = self.api_key
+
         req = request.Request(  # noqa: S310 - scheme is validated just above
             self.base_url.rstrip("/") + path,
-            data=raw,
+            data=json.dumps(payload).encode("utf-8"),
             headers=headers,
             method="POST",
         )
@@ -81,17 +67,22 @@ class TodoAIClient:
                 body = json.loads(response.read().decode("utf-8"))
         except error.HTTPError as err:
             detail = err.read().decode("utf-8", errors="ignore")
-            raise TodoAIClientError(
+            raise CharacterAIClientError(
                 f"mongle-ai HTTP {err.code}: {detail[:200]}"
             ) from err
         except error.URLError as err:
-            raise TodoAIClientError(f"mongle-ai connection failed: {err}") from err
+            raise CharacterAIClientError(f"mongle-ai connection failed: {err}") from err
         except json.JSONDecodeError as err:
-            raise TodoAIClientError("mongle-ai returned non-JSON response") from err
+            raise CharacterAIClientError(
+                "mongle-ai returned non-JSON response"
+            ) from err
 
         if body.get("status") != "done":
-            raise TodoAIClientError(f"mongle-ai returned non-done envelope: {body}")
+            raise CharacterAIClientError(
+                f"mongle-ai returned non-done envelope: {body}"
+            )
+
         result = body.get("result")
         if not isinstance(result, dict):
-            raise TodoAIClientError("mongle-ai result payload is missing")
+            raise CharacterAIClientError("mongle-ai result payload is missing")
         return result
