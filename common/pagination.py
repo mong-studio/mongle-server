@@ -17,7 +17,7 @@ def encode_cursor(created_at: str, pk: str) -> str:
 def decode_cursor(cursor: str) -> dict[str, str]:
     try:
         payload = base64.urlsafe_b64decode(cursor.encode()).decode()
-        data = json.loads(payload)
+        data: dict[str, str] = json.loads(payload)
     except Exception as e:
         raise ValueError("INVALID_CURSOR") from e
     if "created_at" not in data or "pk" not in data:

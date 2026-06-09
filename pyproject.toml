@@ -123,6 +123,10 @@ mypy_path = ["."]
 django_settings_module = "config.settings.test"
 
 [[tool.mypy.overrides]]
+module = ["boto3", "botocore.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["environ"]
 ignore_missing_imports = true
 
