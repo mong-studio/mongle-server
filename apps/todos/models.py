@@ -8,6 +8,13 @@ class Tag(models.Model):
     tag_id = models.IntegerField(primary_key=True)
     content = models.CharField(max_length=20)
     color = models.CharField(max_length=7)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tags",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         db_table = "tags"

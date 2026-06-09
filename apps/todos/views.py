@@ -7,6 +7,7 @@ from secrets import compare_digest
 from django.conf import settings
 from django.db.models import Max
 from django.utils import timezone
+from django.db.models import ProtectedError
 from rest_framework import generics, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -16,7 +17,7 @@ from apps.characters.models import Character
 from apps.quests.models import Quest
 from apps.todos.ai_client import TodoAIClient, TodoAIClientError
 from apps.todos.models import Schedule, Tag, Todo
-from apps.todos.serializers import TodoSerializer
+from apps.todos.serializers import TagSerializer, TodoSerializer
 from apps.todos.todo_ai_serializers import (
     SavedScheduleSerializer,
     SavedTodoSerializer,
@@ -56,6 +57,36 @@ class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         # 내 TODO만 수정/삭제 가능
         return Todo.objects.filter(user=self.request.user)
+
+
+class TagListCreateView(generics.ListCreateAPIView):
+    serializer_class = TagSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        return Tag.objects.filter(user=self.request.user).order_by("tag_id")
+
+    def perform_create(self, serializer):
+        last_id = Tag.objects.aggregate(max_id=Max("tag_id"))["max_id"] or 0
+        serializer.save(user=self.request.user, tag_id=last_id + 1)
+
+
+class TagDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = TagSerializer
+    permission_classes = (IsAuthenticated,)
+    lookup_field = "tag_id"
+
+    def get_queryset(self):
+        return Tag.objects.filter(user=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"error": "사용 중인 태그는 삭제할 수 없어요."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
 
 class TodoGenerateAIView(APIView):
