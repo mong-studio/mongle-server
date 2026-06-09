@@ -172,6 +172,14 @@ SIMPLE_JWT = {
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
+AWS_S3_BUCKET_NAME = env("AWS_S3_BUCKET_NAME", default="")
+AWS_S3_REGION = env("AWS_S3_REGION", default="ap-northeast-2")
+AWS_S3_PRESIGNED_URL_EXPIRY = env.int("AWS_S3_PRESIGNED_URL_EXPIRY", default=600)
+AI_SERVICE_URL = env("AI_SERVICE_URL", default="")
+AI_SERVICE_TOKEN = env("AI_SERVICE_TOKEN", default="")
+
 # 캐시: 레이트 리밋 카운터 등을 여러 워커 프로세스 간에 공유하기 위해 Redis 사용.
 # (Django 기본 LocMemCache는 프로세스별이라 멀티워커에서 카운트가 분산된다.)
 CACHES = {
