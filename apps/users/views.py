@@ -22,7 +22,7 @@ from apps.users.refresh_token_service import (
     set_refresh_cookie,
     validate_refresh_token,
 )
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import UserSerializer, UserUpdateSerializer
 from apps.users.validators import (
     collect_validated_fields,
     validate_email,
@@ -115,10 +115,15 @@ class LoginView(APIView):
 
 class MeView(APIView):
     permission_classes = (IsAuthenticated,)
-    # 로그인한 사람만 접근 가능 (JWT 토큰 필요)
 
     def get(self, request: Request) -> Response:
-        # request.user: JWT 토큰에서 자동으로 추출한 현재 로그인 유저 객체
+        return Response(UserSerializer(request.user).data)
+
+    def patch(self, request: Request) -> Response:
+        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return validation_error_response(ValidationError(serializer.errors))
+        serializer.save()
         return Response(UserSerializer(request.user).data)
 
 
