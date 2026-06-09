@@ -12,7 +12,8 @@ import pytest
 from apps.users.models import RefreshToken, User
 from apps.users.refresh_token_service import (
     REFRESH_COOKIE_NAME,
-    REFRESH_TOKEN_LIFETIME,
+    REFRESH_TOKEN_LIFETIME_PERSISTENT,
+    REFRESH_TOKEN_LIFETIME_SESSION,
     clear_refresh_cookie,
     issue_refresh_token,
     revoke_refresh_token,
@@ -63,16 +64,15 @@ def test_rotate_inherits_persistent_flag(user: User) -> None:
     assert new_row.persistent is False  # 세션 토큰은 회전해도 세션 유지
 
 
-def test_set_refresh_cookie_session_has_no_max_age() -> None:
-    """persistent=False 쿠키는 만료시각 없는 세션 쿠키로 설정된다."""
+def test_set_refresh_cookie_session_has_short_max_age() -> None:
+    """persistent=False 쿠키는 1일 max_age를 가진다 (Safari ITP 대응)."""
     response = HttpResponse()
     set_refresh_cookie(response, "raw-token-value", persistent=False)
 
     cookie = response.cookies[REFRESH_COOKIE_NAME]
     assert cookie.value == "raw-token-value"
     assert cookie["httponly"]
-    assert cookie["max-age"] == ""  # 세션 쿠키 → 만료시각 없음
-    assert cookie["expires"] == ""
+    assert cookie["max-age"] == int(REFRESH_TOKEN_LIFETIME_SESSION.total_seconds())
 
 
 @pytest.mark.django_db
@@ -154,7 +154,7 @@ def test_set_refresh_cookie_attributes() -> None:
     assert cookie["httponly"]
     assert cookie["path"] == "/api/v1/auth"
     assert cookie["samesite"] == "Lax"
-    assert cookie["max-age"] == int(REFRESH_TOKEN_LIFETIME.total_seconds())
+    assert cookie["max-age"] == int(REFRESH_TOKEN_LIFETIME_PERSISTENT.total_seconds())
 
 
 def test_clear_refresh_cookie_expires_cookie() -> None:
