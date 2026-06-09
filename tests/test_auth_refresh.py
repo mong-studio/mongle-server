@@ -61,15 +61,15 @@ def test_refresh_persistent_token_keeps_persistent_cookie(user: User) -> None:
 
 
 @pytest.mark.django_db
-def test_refresh_session_token_keeps_session_cookie(user: User) -> None:
+def test_refresh_session_token_keeps_short_lived_cookie(user: User) -> None:
     """세션 토큰을 재발급해도
-    세션 쿠키 성격(만료시각 없음)을 유지해야 한다.
+    1일 max_age 쿠키 성격을 유지해야 한다 (Safari ITP 대응).
     """
     raw, _ = issue_refresh_token(user, persistent=False)
     response = _client_with_cookie(raw).post(REFRESH_URL)
     assert response.status_code == 200
-    # 세션 토큰은 회전해도 세션 쿠키로 유지(만료시각 없음)
-    assert response.cookies[REFRESH_COOKIE_NAME]["max-age"] == ""
+    # Safari ITP 대응: 세션 쿠키 대신 1일 max_age 유지
+    assert response.cookies[REFRESH_COOKIE_NAME]["max-age"] == 86400
 
 
 @pytest.mark.django_db
