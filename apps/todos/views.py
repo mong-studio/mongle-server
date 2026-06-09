@@ -5,9 +5,8 @@ from __future__ import annotations
 from secrets import compare_digest
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Max, ProtectedError
 from django.utils import timezone
-from django.db.models import ProtectedError
 from rest_framework import generics, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
