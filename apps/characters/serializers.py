@@ -13,7 +13,6 @@ class CharacterListItemSerializer(serializers.ModelSerializer):
         model = Character
         fields = (
             "character_id",
-            "character_name",
             "name",
             "gen_img_url",
             "active_quest_count",
@@ -39,7 +38,6 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
         model = Character
         fields = (
             "character_id",
-            "character_name",
             "name",
             "gen_img_url",
             "persona",
@@ -65,7 +63,6 @@ class CharacterSerializer(serializers.ModelSerializer):
         model = Character
         fields = (
             "character_id",
-            "character_name",
             "name",
             "gen_img_url",
             "persona",

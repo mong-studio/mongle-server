@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from secrets import compare_digest
+
 from django.conf import settings
 from django.db.models import Max
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -23,6 +25,15 @@ from apps.todos.todo_ai_serializers import (
     TodoGenerateRequestSerializer,
 )
 from apps.users.models import User
+
+
+class InternalServiceTokenPermission(BasePermission):
+    message = "유효한 내부 서비스 토큰이 필요합니다."
+
+    def has_permission(self, request, view) -> bool:
+        expected_token = settings.MONGLE_AI_API_KEY
+        provided_token = request.headers.get("X-Internal-Service-Token", "")
+        return bool(expected_token) and compare_digest(provided_token, expected_token)
 
 
 class TodoListCreateView(generics.ListCreateAPIView):
@@ -48,7 +59,7 @@ class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class TodoGenerateAIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = (InternalServiceTokenPermission,)
 
     def post(self, request) -> Response:
         serializer = TodoGenerateRequestSerializer(data=request.data)
@@ -68,7 +79,7 @@ class TodoGenerateAIView(APIView):
 
 
 class TodoChatAIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = (InternalServiceTokenPermission,)
 
     def post(self, request) -> Response:
         serializer = TodoChatRequestSerializer(data=request.data)
@@ -89,7 +100,7 @@ class TodoChatAIView(APIView):
 
 
 class TodoCommitAIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = (InternalServiceTokenPermission,)
 
     def post(self, request) -> Response:
         serializer = TodoCommitRequestSerializer(data=request.data)

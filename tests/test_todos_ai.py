@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 import pytest
 
 from apps.quests.models import Quest
 from apps.todos.models import Schedule, Tag, Todo
 
+TEST_INTERNAL_TOKEN = "test-internal-token"  # noqa: S105 - test-only token
+
 
 @pytest.mark.django_db
-def test_todo_generate_bridge_works_without_auth(client) -> None:
+@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
+def test_todo_generate_bridge_works_with_internal_token(client) -> None:
     with patch("apps.todos.views._todo_ai_client") as factory:
         factory.return_value.generate.return_value = {
             "kind": "candidates",
@@ -26,6 +30,7 @@ def test_todo_generate_bridge_works_without_auth(client) -> None:
             "/api/v1/todos/generate/",
             data={"prompt": "운동 계획"},
             content_type="application/json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 200
@@ -34,6 +39,18 @@ def test_todo_generate_bridge_works_without_auth(client) -> None:
 
 
 @pytest.mark.django_db
+def test_todo_generate_bridge_rejects_missing_internal_token(client) -> None:
+    response = client.post(
+        "/api/v1/todos/generate/",
+        data={"prompt": "운동 계획"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
 def test_todo_chat_bridge_returns_follow_up(client) -> None:
     with patch("apps.todos.views._todo_ai_client") as factory:
         factory.return_value.chat.return_value = {
@@ -47,6 +64,7 @@ def test_todo_chat_bridge_returns_follow_up(client) -> None:
             "/api/v1/todos/chat/",
             data={"message": "시험 공부 해야 해", "thread_id": None},
             content_type="application/json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 200
@@ -55,6 +73,7 @@ def test_todo_chat_bridge_returns_follow_up(client) -> None:
 
 
 @pytest.mark.django_db
+@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
 def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> None:
     today = timezone.localdate().isoformat()
     with patch("apps.todos.views._todo_ai_client") as factory:
@@ -76,6 +95,7 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
                 ],
             },
             content_type="application/json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 201
@@ -88,6 +108,23 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
 
 
 @pytest.mark.django_db
+def test_todo_commit_rejects_missing_internal_token(auth_client) -> None:
+    today = timezone.localdate().isoformat()
+
+    response = auth_client.post(
+        "/api/v1/todos/commit/",
+        data={
+            "todos": [{"title": "헬스 30분", "due_date": today, "tags": ["건강"]}],
+            "calendar_events": [],
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
 def test_todo_commit_creates_quest_when_ai_returns_mapping(
     auth_client, character
 ) -> None:
@@ -115,6 +152,7 @@ def test_todo_commit_creates_quest_when_ai_returns_mapping(
                 "calendar_events": [],
             },
             content_type="application/json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 201

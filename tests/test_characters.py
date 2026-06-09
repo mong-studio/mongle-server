@@ -43,7 +43,6 @@ def test_character_list_returns_own_characters(
     payload = response.json()
 
     assert len(payload["items"]) == 1
-    assert payload["items"][0]["character_name"] == "테스트캐릭터"
     assert payload["items"][0]["name"] == "테스트캐릭터"
     assert payload["items"][0]["active_quest_count"] == 0
     assert payload["page"]["has_next"] is False
@@ -162,7 +161,6 @@ def test_character_detail_authenticated(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["character_name"] == "테스트캐릭터"
     assert payload["name"] == "테스트캐릭터"
     assert payload["active_quests"] == [
         {
