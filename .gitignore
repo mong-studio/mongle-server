@@ -21,3 +21,5 @@ docs/api-spec/api-spec_detail/*
 .omc/
 *.erd
 *.sql
+docs/api-spec/
+CHANGES.local.md
