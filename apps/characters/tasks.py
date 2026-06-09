@@ -20,3 +20,63 @@ def reset_image_gen_count() -> None:
         datetime.datetime.combine(timezone.localdate(), datetime.time.min)
     )
     ImgGenLog.objects.filter(created_at__lt=today_start).delete()
+
+
+@shared_task(bind=True, max_retries=3)
+def process_character_generation_job(self, job_id: str) -> None:
+    """AI 서비스에 캐릭터 이미지 생성 요청을 보내고 결과를 저장한다."""
+    from django.conf import settings
+    import httpx
+
+    from apps.characters.models import CharacterGenerationJob
+
+    try:
+        job = CharacterGenerationJob.objects.get(pk=job_id)
+    except CharacterGenerationJob.DoesNotExist:
+        return
+
+    job.status = CharacterGenerationJob.Status.IN_PROGRESS
+    job.save(update_fields=["status", "updated_at"])
+
+    try:
+        source_img_url = ""
+        if job.source_image and job.source_image.object_key:
+            source_img_url = (
+                f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}"
+                f".amazonaws.com/{job.source_image.object_key}"
+            )
+
+        payload = {
+            "personality_keywords": job.personality_keywords,
+            "custom_prompt": job.custom_prompt,
+            "source_img_url": source_img_url,
+        }
+
+        response = httpx.post(
+            f"{settings.AI_SERVICE_URL}/generate",
+            json=payload,
+            headers={"Authorization": f"Bearer {settings.AI_SERVICE_TOKEN}"},
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        job.gen_img_url = data.get("gen_img_url", "")
+        job.gen_img_object_key = data.get("gen_img_object_key", "")
+        job.persona = data.get("persona", "")
+        job.status = CharacterGenerationJob.Status.SUCCEEDED
+        job.save(
+            update_fields=[
+                "gen_img_url",
+                "gen_img_object_key",
+                "persona",
+                "status",
+                "updated_at",
+            ]
+        )
+
+    except Exception as exc:
+        job.status = CharacterGenerationJob.Status.FAILED
+        job.error_code = type(exc).__name__
+        job.error_message = str(exc)[:255]
+        job.save(update_fields=["status", "error_code", "error_message", "updated_at"])
