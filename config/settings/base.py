@@ -30,6 +30,9 @@ env = environ.Env(
         list,
         ["http://localhost:3000", "http://localhost:5173"],
     ),
+    MONGLE_AI_API_BASE=(str, "http://127.0.0.1:8010"),
+    MONGLE_AI_API_KEY=(str, ""),
+    MONGLE_AI_TIMEOUT_SECONDS=(float, 15.0),
 )
 
 
@@ -192,6 +195,9 @@ CACHES = {
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TIMEZONE = "Asia/Seoul"
+MONGLE_AI_API_BASE = env("MONGLE_AI_API_BASE")
+MONGLE_AI_API_KEY = env("MONGLE_AI_API_KEY")
+MONGLE_AI_TIMEOUT_SECONDS = env("MONGLE_AI_TIMEOUT_SECONDS")
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "fail-incomplete-todos": {

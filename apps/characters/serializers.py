@@ -1,51 +1,59 @@
 from rest_framework import serializers
 
 from apps.characters.models import Character, CharacterGenerationJob, SourceImage
+from apps.quests.models import Quest
+from apps.todos.models import Todo
 
 
-class CharacterSerializer(serializers.ModelSerializer):
+class CharacterListItemSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="character_name", read_only=True)
+    active_quest_count = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = Character
         fields = (
             "character_id",
-            "character_name",
+            "name",
             "gen_img_url",
-            "persona",
-            "is_active",
-            "created_at",
+            "active_quest_count",
         )
-        read_only_fields = ("character_id", "created_at")
+        read_only_fields = fields
 
 
-class CharacterListItemSerializer(serializers.ModelSerializer):
-    active_quest_count = serializers.SerializerMethodField()
+class ActiveQuestSerializer(serializers.ModelSerializer):
+    todo_id = serializers.UUIDField(source="todo.todo_id", read_only=True)
+    title = serializers.CharField(source="todo.content", read_only=True)
 
     class Meta:
-        model = Character
-        fields = ("character_id", "character_name", "gen_img_url", "active_quest_count")
-
-    def get_active_quest_count(self, obj: Character) -> int:
-        return obj.quests.filter(status="IN_PROGRESS").count()
+        model = Quest
+        fields = ("quest_id", "todo_id", "title")
+        read_only_fields = fields
 
 
 class CharacterDetailSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="character_name", read_only=True)
     active_quests = serializers.SerializerMethodField()
 
     class Meta:
         model = Character
         fields = (
             "character_id",
-            "character_name",
+            "name",
             "gen_img_url",
             "persona",
+            "is_active",
+            "created_at",
             "active_quests",
         )
+        read_only_fields = fields
 
-    def get_active_quests(self, obj: Character) -> list:
-        from apps.quests.serializers import QuestListItemSerializer
-
-        qs = obj.quests.filter(status="IN_PROGRESS").select_related("todo")
-        return QuestListItemSerializer(qs, many=True).data
+    def get_active_quests(self, obj: Character) -> list[dict[str, object]]:
+        active_quests = (
+            obj.quests.select_related("todo")
+            .filter(todo__status=Todo.Status.IN_PROGRESS)
+            .order_by("-created_at")
+        )
+        return ActiveQuestSerializer(active_quests, many=True).data
 
 
 class CharacterRegisterSerializer(serializers.Serializer):

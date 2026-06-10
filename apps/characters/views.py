@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 import uuid
 
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -268,7 +269,13 @@ class CharacterListView(APIView):
 
         cursor = request.query_params.get("cursor")
 
-        qs = Character.objects.filter(user=request.user, is_active=True)
+        qs = Character.objects.filter(user=request.user, is_active=True).annotate(
+            active_quest_count=Count(
+                "quests",
+                filter=Q(quests__todo__status="IN_PROGRESS"),
+                distinct=True,
+            )
+        )
         try:
             items, next_cursor, has_next = paginate_queryset(
                 qs, "character_id", limit, cursor
