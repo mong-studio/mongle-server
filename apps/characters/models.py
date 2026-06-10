@@ -4,6 +4,70 @@ from django.conf import settings
 from django.db import models
 
 
+class SourceImage(models.Model):
+    class Status(models.TextChoices):
+        PENDING_UPLOAD = "pending_upload", "pending_upload"
+        UPLOAD_COMPLETED = "upload_completed", "upload_completed"
+        UPLOAD_EXPIRED = "upload_expired", "upload_expired"
+
+    source_img_id = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="source_images",
+    )
+    object_key = models.CharField(max_length=500)
+    content_type = models.CharField(max_length=50)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING_UPLOAD
+    )
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "source_images"
+
+
+class CharacterGenerationJob(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "queued"
+        IN_PROGRESS = "in_progress", "in_progress"
+        SUCCEEDED = "succeeded", "succeeded"
+        FAILED = "failed", "failed"
+        CONSUMED = "consumed", "consumed"
+
+    job_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="generation_jobs",
+    )
+    source_image = models.ForeignKey(
+        SourceImage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="generation_jobs",
+    )
+    personality_keywords = models.JSONField(default=list)
+    custom_prompt = models.CharField(max_length=200, blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.QUEUED
+    )
+    gen_img_object_key = models.CharField(max_length=500, blank=True)
+    gen_img_url = models.CharField(max_length=500, blank=True)
+    persona = models.TextField(blank=True)
+    error_code = models.CharField(max_length=50, blank=True)
+    error_message = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "character_generation_jobs"
+
+
 class Character(models.Model):
     character_id = models.UUIDField(
         primary_key=True, default=uuid.uuid4, editable=False
@@ -12,6 +76,13 @@ class Character(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="characters",
+    )
+    generation_job = models.OneToOneField(
+        CharacterGenerationJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="character",
     )
     character_name = models.CharField(max_length=50)
     origin_img_url = models.CharField(max_length=500, blank=True)

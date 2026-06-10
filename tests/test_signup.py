@@ -38,6 +38,7 @@ def fake_redis_store(monkeypatch: pytest.MonkeyPatch) -> fakeredis.FakeRedis:
     return fake
 
 
+# 이메일 인증 요청 시 Redis에 상태 저장 및 인증 코드가 포함된 이메일 발송 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_request_stores_state_and_sends_code(
     monkeypatch: pytest.MonkeyPatch,
@@ -68,6 +69,7 @@ def test_email_verification_request_stores_state_and_sends_code(
     assert verification["purpose"] == "SIGNUP"
 
 
+# 이미 가입된 이메일로 인증 요청 시 409 EMAIL_DUPLICATED 반환 확인
 def test_email_verification_request_rejects_duplicated_email() -> None:
     User.objects.create_user(
         email="user@example.com",
@@ -86,6 +88,7 @@ def test_email_verification_request_rejects_duplicated_email() -> None:
     assert response.json()["error"]["message"] == "EMAIL_DUPLICATED"
 
 
+# 30초 이내 동일 이메일로 재발송 요청 시 429 EMAIL_VERIFICATION_RATE_LIMITED 반환 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_request_rate_limits_resend(
     monkeypatch: pytest.MonkeyPatch,
@@ -104,6 +107,7 @@ def test_email_verification_request_rate_limits_resend(
     )
 
 
+# 올바른 인증 코드 확인 시 verified=true 및 verification_token 발급 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_confirm_marks_email_verified(
     monkeypatch: pytest.MonkeyPatch,
@@ -136,6 +140,7 @@ def test_email_verification_confirm_marks_email_verified(
     assert fake_redis_store.get(token_key) is not None
 
 
+# 잘못된 인증 코드로 확인 요청 시 400 INVALID_VERIFICATION_CODE 반환 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_confirm_rejects_invalid_code(
     monkeypatch: pytest.MonkeyPatch,
@@ -158,6 +163,7 @@ def test_email_verification_confirm_rejects_invalid_code(
     assert response.json()["error"]["message"] == "INVALID_VERIFICATION_CODE"
 
 
+# 만료된 인증 코드로 확인 요청 시 400 VERIFICATION_CODE_EXPIRED 반환 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_confirm_rejects_expired_code(
     monkeypatch: pytest.MonkeyPatch,
@@ -192,6 +198,7 @@ def test_email_verification_confirm_rejects_expired_code(
     assert response.json()["error"]["message"] == "VERIFICATION_CODE_EXPIRED"
 
 
+# 이메일 인증 완료 후 회원가입 성공 시 유저 생성 및 verification_token 삭제 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_signup_creates_user_and_clears_verification_state(
     monkeypatch: pytest.MonkeyPatch,
@@ -240,6 +247,7 @@ def test_signup_creates_user_and_clears_verification_state(
     assert fake_redis_store.get(f"email_verified:{verification_token}") is None
 
 
+# 이메일 인증 없이 회원가입 시도 시 400 EMAIL_NOT_VERIFIED 반환 확인
 def test_signup_rejects_unverified_email() -> None:
     client = Client()
 
@@ -258,6 +266,7 @@ def test_signup_rejects_unverified_email() -> None:
     assert response.json()["error"]["message"] == "EMAIL_NOT_VERIFIED"
 
 
+# 비밀번호·닉네임 유효성 검사 실패 시 400과 필드별 오류 반환 확인
 def test_signup_validates_password_and_user_name() -> None:
     client = Client()
 
