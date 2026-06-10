@@ -23,3 +23,5 @@ docs/api-spec/api-spec_detail/*
 *.sql
 docs/api-spec/
 CHANGES.local.md
+docs/api-test-results.md
+infrastructure/storage/s3.py
