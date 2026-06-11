@@ -15,6 +15,8 @@ class TaskCandidateSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
+# TODO(#24): generate/chat 요청에 available_tags 필드를 추가하고,
+# mongle-ai 쪽 프롬프트에 태그 목록을 주입해야 LLM이 올바른 태그를 반환할 수 있다.
 class TodoGenerateRequestSerializer(serializers.Serializer[dict[str, Any]]):
     prompt = serializers.CharField(max_length=200)
 
