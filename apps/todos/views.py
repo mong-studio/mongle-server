@@ -112,6 +112,9 @@ class TodoCommitAIView(APIView):
         todos_payload = serializer.validated_data.get("todos", [])
         events_payload = serializer.validated_data.get("calendar_events", [])
 
+        # TODO(#24): 여기서 available_tags 목록을 LLM 요청 컨텍스트에 포함해야 한다.
+        # 현재는 LLM이 태그 목록을 모르는 채로 자유 문자열을 반환하므로
+        # _ensure_tag에서 예상치 못한 태그가 생성될 수 있다.
         saved_todos = [
             Todo.objects.create(
                 user=user,
@@ -281,8 +284,14 @@ def _resolve_user(request) -> User:
 
 
 def _ensure_tag(tags: list[str]) -> Tag:
-    content = (tags[0] if tags else "기타").strip()[:20] or "기타"
-    existing = Tag.objects.filter(content=content).first()
-    if existing is not None:
-        return existing
-    return Tag.objects.create(content=content, color="#E7D39F")
+    if tags:
+        content = tags[0].strip()[:20]
+        existing = Tag.objects.filter(content=content).first()
+        if existing is not None:
+            return existing
+    # TODO(#24): 퍼지 매칭 또는 available_tags 컨텍스트 주입으로 LLM이
+    # 미리 정의된 태그 세트 내에서 선택하도록 개선 예정.
+    # 현재는 매칭 실패·빈 태그 모두 tag_id=1(일반)로 폴백.
+    return Tag.objects.filter(tag_id=1).first() or Tag.objects.create(
+        content="일반", color="#E7D39F"
+    )
