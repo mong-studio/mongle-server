@@ -9,7 +9,7 @@ from django.utils import timezone
 import pytest
 
 from apps.quests.models import Quest
-from apps.todos.models import Schedule, Tag, Todo
+from apps.todos.models import Schedule, Todo
 
 TEST_INTERNAL_TOKEN = "test-internal-token"  # noqa: S105 - test-only token
 
@@ -101,7 +101,8 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
     assert response.status_code == 201
     assert Todo.objects.count() == 1
     assert Schedule.objects.count() == 1
-    assert Tag.objects.count() == 2
+    assert Todo.objects.filter(tag__content="건강").exists()
+    assert Schedule.objects.filter(tag__content="업무").exists()
     assert response.json()["todos"][0]["content"] == "헬스 30분"
     assert response.json()["calendar_events"][0]["title"] == "프로젝트 발표"
     factory.return_value.generate_quests.assert_called_once()
