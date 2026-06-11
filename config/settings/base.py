@@ -33,6 +33,10 @@ env = environ.Env(
     MONGLE_AI_API_BASE=(str, "http://127.0.0.1:8010"),
     MONGLE_AI_API_KEY=(str, ""),
     MONGLE_AI_TIMEOUT_SECONDS=(float, 15.0),
+    IMAGE_PROVIDER=(str, "local"),
+    RUNPOD_API_KEY=(str, ""),
+    RUNPOD_IMAGE_ENDPOINT_ID=(str, ""),
+    RUNPOD_TIMEOUT_SECONDS=(float, 60.0),
 )
 
 
@@ -66,6 +70,7 @@ INSTALLED_APPS = [
     # 추가 앱
     "apps.users",  # 회원/인증
     "apps.characters",  # 캐릭터
+    "apps.tags",  # 태그 (todo/캘린더 공용)
     "apps.todos",  # TODO
     "apps.quests",  # 퀘스트
     "apps.posts",  # 피드/댓글
@@ -190,6 +195,10 @@ CELERY_TIMEZONE = "Asia/Seoul"
 MONGLE_AI_API_BASE = env("MONGLE_AI_API_BASE")
 MONGLE_AI_API_KEY = env("MONGLE_AI_API_KEY")
 MONGLE_AI_TIMEOUT_SECONDS = env("MONGLE_AI_TIMEOUT_SECONDS")
+IMAGE_PROVIDER = env("IMAGE_PROVIDER")
+RUNPOD_API_KEY = env("RUNPOD_API_KEY")
+RUNPOD_IMAGE_ENDPOINT_ID = env("RUNPOD_IMAGE_ENDPOINT_ID")
+RUNPOD_TIMEOUT_SECONDS = env("RUNPOD_TIMEOUT_SECONDS")
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "fail-incomplete-todos": {

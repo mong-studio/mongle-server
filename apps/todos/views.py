@@ -5,7 +5,7 @@ from __future__ import annotations
 from secrets import compare_digest
 
 from django.conf import settings
-from django.db.models import Max
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -14,8 +14,9 @@ from rest_framework.views import APIView
 
 from apps.characters.models import Character
 from apps.quests.models import Quest
+from apps.tags.models import Tag
 from apps.todos.ai_client import TodoAIClient, TodoAIClientError
-from apps.todos.models import Schedule, Tag, Todo
+from apps.todos.models import Schedule, Todo
 from apps.todos.serializers import TodoSerializer
 from apps.todos.todo_ai_serializers import (
     SavedScheduleSerializer,
@@ -41,11 +42,13 @@ class TodoListCreateView(generics.ListCreateAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        # 내 TODO만 조회, 최신순 정렬
         return Todo.objects.filter(user=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        tag = serializer.validated_data.pop("tag", None)
+        if tag is None:
+            tag = Tag.objects.filter(tag_id=1).first()
+        serializer.save(user=self.request.user, tag=tag)
 
 
 class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -54,7 +57,6 @@ class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_field = "todo_id"
 
     def get_queryset(self):
-        # 내 TODO만 수정/삭제 가능
         return Todo.objects.filter(user=self.request.user)
 
 
@@ -228,6 +230,32 @@ class TodoCommitAIView(APIView):
         )
 
 
+class TodoCompleteView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def patch(self, request, todo_id) -> Response:
+        todo = generics.get_object_or_404(Todo, todo_id=todo_id, user=request.user)
+        if todo.status != Todo.Status.IN_PROGRESS:
+            return Response(
+                {"error": "완료할 수 없는 상태입니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        todo.status = Todo.Status.COMPLETED
+        todo.save(update_fields=["status", "updated_at"])
+
+        quest = todo.quests.select_related("character").first()
+        if quest:
+            from apps.posts.tasks import generate_post_from_quest
+
+            quest_id = str(quest.quest_id)
+            transaction.on_commit(
+                lambda: generate_post_from_quest.apply_async(args=[quest_id])
+            )
+
+        return Response({"todo_id": str(todo.todo_id), "status": todo.status})
+
+
 def _todo_ai_client() -> TodoAIClient:
     return TodoAIClient(
         base_url=settings.MONGLE_AI_API_BASE,
@@ -257,9 +285,4 @@ def _ensure_tag(tags: list[str]) -> Tag:
     existing = Tag.objects.filter(content=content).first()
     if existing is not None:
         return existing
-    last_id = Tag.objects.aggregate(max_id=Max("tag_id"))["max_id"] or 0
-    return Tag.objects.create(
-        tag_id=last_id + 1,
-        content=content,
-        color="#E7D39F",
-    )
+    return Tag.objects.create(content=content, color="#E7D39F")

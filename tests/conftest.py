@@ -12,7 +12,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.characters.models import Character
 from apps.posts.models import Post
 from apps.quests.models import Quest
-from apps.todos.models import Tag, Todo
+from apps.tags.models import Tag
+from apps.todos.models import Todo
 from apps.users.models import User
 
 
@@ -43,7 +44,7 @@ def auth_client(user: User) -> APIClient:
 
 @pytest.fixture
 def tag(db) -> Tag:
-    return Tag.objects.create(tag_id=1, content="공부", color="#ff0000")
+    return Tag.objects.create(content="공부", color="#ff0000")
 
 
 @pytest.fixture

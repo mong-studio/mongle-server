@@ -9,7 +9,8 @@ from rest_framework.test import APIClient
 
 from apps.characters.models import Character
 from apps.quests.models import Quest
-from apps.todos.models import Tag, Todo
+from apps.tags.models import Tag
+from apps.todos.models import Todo
 from apps.users.models import User
 
 
