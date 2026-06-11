@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
                 related_name="tags",
                 to=settings.AUTH_USER_MODEL,
             ),
+            preserve_default=False,
         ),
         migrations.AddConstraint(
             model_name="tag",
