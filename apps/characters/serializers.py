@@ -58,7 +58,7 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
 
 class CharacterRegisterSerializer(serializers.Serializer):
     gen_job_id = serializers.UUIDField()
-    name = serializers.CharField(max_length=50)
+    name = serializers.CharField(max_length=8)
     persona = serializers.CharField()
 
 

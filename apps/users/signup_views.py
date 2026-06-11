@@ -25,8 +25,8 @@ from apps.users.models import User
 from apps.users.validators import (
     collect_validated_fields,
     parse_json_body,
+    validate_birth,
     validate_email,
-    validate_optional_birth,
     validate_optional_string,
     validate_password,
     validate_purpose,
@@ -275,7 +275,7 @@ def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
         ("password", lambda: validate_password(body.get("password"))),
         ("user_name", lambda: validate_user_name(body.get("user_name"))),
         ("job", lambda: validate_optional_string(body.get("job"), "job", 20)),
-        ("birth", lambda: validate_optional_birth(body.get("birth"))),
+        ("birth", lambda: validate_birth(body.get("birth"))),
         (
             "is_aiconsent",
             lambda: validate_required_boolean(

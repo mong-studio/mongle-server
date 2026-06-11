@@ -30,6 +30,7 @@ def user(db) -> User:
         email="test@test.com",
         password="password123",
         user_name="테스터",
+        birth="2000-01-01",
     )
 
 
@@ -42,8 +43,8 @@ def auth_client(user: User) -> APIClient:
 
 
 @pytest.fixture
-def tag(db) -> Tag:
-    return Tag.objects.create(tag_id=1, content="공부", color="#ff0000")
+def tag(db, user: User) -> Tag:
+    return Tag.objects.create(tag_id=1, user=user, content="공부", color="#ff0000")
 
 
 @pytest.fixture

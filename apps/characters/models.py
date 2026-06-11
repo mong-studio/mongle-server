@@ -84,7 +84,7 @@ class Character(models.Model):
         blank=True,
         related_name="character",
     )
-    character_name = models.CharField(max_length=50)
+    character_name = models.CharField(max_length=8)
     origin_img_url = models.CharField(max_length=500, blank=True)
     gen_img_url = models.CharField(max_length=500)
     persona = models.TextField()

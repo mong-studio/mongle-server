@@ -98,9 +98,9 @@ def validate_optional_string(value: object, field: str, max_length: int) -> str:
     return stripped
 
 
-def validate_optional_birth(value: object) -> date | None:
+def validate_birth(value: object) -> date:
     if value is None or value == "":
-        return None
+        raise ValidationError({"birth": ["생년월일은 필수입니다."]})
     if not isinstance(value, str):
         raise ValidationError({"birth": ["YYYY-MM-DD 형식으로 입력해 주세요."]})
     try:
