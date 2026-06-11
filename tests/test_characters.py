@@ -113,7 +113,7 @@ def test_generation_job_create_success(auth_client: APIClient) -> None:
         )
     assert response.status_code == 202
     data = response.json()
-    assert data["status"] == "queued"
+    assert data["status"] == "QUEUED"
     assert "job_id" in data
 
 
@@ -172,7 +172,7 @@ def test_generation_job_detail_returns_succeeded_job(
     assert response.status_code == 200
     data = response.json()
     assert data["job_id"] == str(succeeded_job.job_id)
-    assert data["status"] == "succeeded"
+    assert data["status"] == "SUCCEEDED"
     assert data["result"]["gen_img_url"] == "https://example.com/gen.png"
 
 

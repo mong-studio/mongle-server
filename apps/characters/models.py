@@ -6,9 +6,9 @@ from django.db import models
 
 class SourceImage(models.Model):
     class Status(models.TextChoices):
-        PENDING_UPLOAD = "pending_upload", "pending_upload"
-        UPLOAD_COMPLETED = "upload_completed", "upload_completed"
-        UPLOAD_EXPIRED = "upload_expired", "upload_expired"
+        PENDING_UPLOAD = "PENDING_UPLOAD"
+        UPLOAD_COMPLETED = "UPLOAD_COMPLETED"
+        UPLOAD_EXPIRED = "UPLOAD_EXPIRED"
 
     source_img_id = models.UUIDField(
         primary_key=True, default=uuid.uuid4, editable=False
@@ -32,11 +32,11 @@ class SourceImage(models.Model):
 
 class CharacterGenerationJob(models.Model):
     class Status(models.TextChoices):
-        QUEUED = "queued", "queued"
-        IN_PROGRESS = "in_progress", "in_progress"
-        SUCCEEDED = "succeeded", "succeeded"
-        FAILED = "failed", "failed"
-        CONSUMED = "consumed", "consumed"
+        QUEUED = "QUEUED"
+        IN_PROGRESS = "IN_PROGRESS"
+        SUCCEEDED = "SUCCEEDED"
+        FAILED = "FAILED"
+        CONSUMED = "CONSUMED"
 
     job_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
