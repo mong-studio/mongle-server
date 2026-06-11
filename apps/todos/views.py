@@ -284,11 +284,14 @@ def _resolve_user(request) -> User:
 
 
 def _ensure_tag(tags: list[str]) -> Tag:
-    content = (tags[0] if tags else "기타").strip()[:20] or "기타"
-    existing = Tag.objects.filter(content=content).first()
-    if existing is not None:
-        return existing
-    # TODO(#24): LLM이 반환한 태그가 미리 정의된 태그 세트와 매칭되지 않으면
-    # 새 태그를 생성하는 대신 tag_id=1(일반)로 폴백해야 한다.
-    # 퍼지 매칭 또는 available_tags 컨텍스트 주입으로 해결 예정.
-    return Tag.objects.create(content=content, color="#E7D39F")
+    if tags:
+        content = tags[0].strip()[:20]
+        existing = Tag.objects.filter(content=content).first()
+        if existing is not None:
+            return existing
+    # TODO(#24): 퍼지 매칭 또는 available_tags 컨텍스트 주입으로 LLM이
+    # 미리 정의된 태그 세트 내에서 선택하도록 개선 예정.
+    # 현재는 매칭 실패·빈 태그 모두 tag_id=1(일반)로 폴백.
+    return Tag.objects.filter(tag_id=1).first() or Tag.objects.create(
+        content="일반", color="#E7D39F"
+    )
