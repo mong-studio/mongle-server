@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Tag",
             fields=[
-                ("tag_id", models.IntegerField(primary_key=True, serialize=False)),
+                ("tag_id", models.AutoField(primary_key=True, serialize=False)),
                 ("content", models.CharField(max_length=20)),
                 ("color", models.CharField(max_length=7)),
             ],
