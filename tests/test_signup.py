@@ -75,6 +75,7 @@ def test_email_verification_request_rejects_duplicated_email() -> None:
         email="user@example.com",
         password="password123!",
         user_name="몽글이",
+        birth="2000-01-01",
     )
     client = Client()
 
@@ -258,6 +259,7 @@ def test_signup_rejects_unverified_email() -> None:
             "email": "user@example.com",
             "password": "password123!",
             "user_name": "몽글이",
+            "birth": "1999-07-22",
             "is_aiconsent": True,
         },
     )

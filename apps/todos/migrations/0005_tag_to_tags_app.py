@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("todos", "0003_reflection_schedule"),
+        ("todos", "0004_tag_user_tag_unique_user_tag"),
         ("tags", "0003_seed_defaults"),
     ]
 

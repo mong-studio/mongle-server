@@ -6,6 +6,7 @@ from secrets import compare_digest
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -115,7 +116,7 @@ class TodoCommitAIView(APIView):
         saved_todos = [
             Todo.objects.create(
                 user=user,
-                tag=_ensure_tag(item.get("tags") or []),
+                tag=_ensure_tag(item.get("tags") or [], user),
                 content=item["title"],
                 todo_date=item["due_date"],
             )
@@ -124,7 +125,7 @@ class TodoCommitAIView(APIView):
         saved_events = [
             Schedule.objects.create(
                 user=user,
-                tag=_ensure_tag(item.get("tags") or []),
+                tag=_ensure_tag(item.get("tags") or [], user),
                 title=item["title"],
                 start_date=item["due_date"],
                 end_date=item["due_date"],
@@ -274,15 +275,22 @@ def _resolve_user(request) -> User:
         defaults={
             "user_name": "체험자",
             "job": "Demo",
+            "birth": "2000-01-01",
             "is_aiconsent": False,
         },
     )
     return demo_user
 
 
-def _ensure_tag(tags: list[str]) -> Tag:
+def _ensure_tag(tags: list[str], user: User) -> Tag:
     content = (tags[0] if tags else "기타").strip()[:20] or "기타"
-    existing = Tag.objects.filter(content=content).first()
+    existing = Tag.objects.filter(user=user, content=content).first()
     if existing is not None:
         return existing
-    return Tag.objects.create(content=content, color="#E7D39F")
+    last_id = Tag.objects.aggregate(max_id=Max("tag_id"))["max_id"] or 0
+    return Tag.objects.create(
+        tag_id=last_id + 1,
+        user=user,
+        content=content,
+        color="#E7D39F",
+    )

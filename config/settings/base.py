@@ -182,7 +182,7 @@ REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
-AWS_S3_BUCKET_NAME = env("AWS_S3_BUCKET_NAME", default="")
+AWS_S3_BUCKET = env("AWS_S3_BUCKET", default="")
 AWS_S3_REGION = env("AWS_S3_REGION", default="ap-northeast-2")
 AWS_S3_PRESIGNED_URL_EXPIRY = env.int("AWS_S3_PRESIGNED_URL_EXPIRY", default=600)
 AI_SERVICE_URL = env("AI_SERVICE_URL", default="")

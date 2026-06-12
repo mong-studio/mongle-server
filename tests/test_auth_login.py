@@ -115,6 +115,7 @@ def test_login_inactive_user_same_error(db: None) -> None:
         email="inactive@test.com",
         password="password123",
         user_name="비활성",
+        birth="2000-01-01",
         is_active=False,
     )
     response = _login(APIClient(), email="inactive@test.com")

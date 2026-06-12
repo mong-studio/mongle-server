@@ -35,7 +35,7 @@ def generate_presigned_put_url(
     url = client.generate_presigned_url(
         "put_object",
         Params={
-            "Bucket": settings.AWS_S3_BUCKET_NAME,
+            "Bucket": settings.AWS_S3_BUCKET,
             "Key": object_key,
             "ContentType": content_type,
             "ContentLength": content_length,
@@ -55,7 +55,7 @@ def check_object_exists(object_key: str) -> bool:
     """S3에 오브젝트가 존재하는지 확인한다."""
     client = get_s3_client()
     try:
-        client.head_object(Bucket=settings.AWS_S3_BUCKET_NAME, Key=object_key)
+        client.head_object(Bucket=settings.AWS_S3_BUCKET, Key=object_key)
     except Exception:
         return False
     else:

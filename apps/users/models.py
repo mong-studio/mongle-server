@@ -40,7 +40,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     user_name = models.CharField(max_length=8)
     job = models.CharField(max_length=20, blank=True)
-    birth = models.DateField(null=True, blank=True)
+    birth = models.DateField()
     token_balance = models.IntegerField(default=5)
     is_active = models.BooleanField(default=True)
     is_aiconsent = models.BooleanField(default=False)

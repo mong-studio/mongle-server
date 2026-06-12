@@ -42,7 +42,7 @@ def process_character_generation_job(self, job_id: str) -> None:
         source_img_url = ""
         if job.source_image and job.source_image.object_key:
             source_img_url = (
-                f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}"
+                f"https://{settings.AWS_S3_BUCKET}.s3.{settings.AWS_S3_REGION}"
                 f".amazonaws.com/{job.source_image.object_key}"
             )
 
