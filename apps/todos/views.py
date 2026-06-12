@@ -46,10 +46,7 @@ class TodoListCreateView(generics.ListCreateAPIView):
         return Todo.objects.filter(user=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        tag = serializer.validated_data.pop("tag", None)
-        if tag is None:
-            tag = Tag.objects.filter(tag_id=1).first()
-        serializer.save(user=self.request.user, tag=tag)
+        serializer.save(user=self.request.user)
 
 
 class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):

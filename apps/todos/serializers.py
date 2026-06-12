@@ -8,7 +8,7 @@ class TodoSerializer(serializers.ModelSerializer):
     tag_id = serializers.PrimaryKeyRelatedField(
         source="tag",
         queryset=Tag.objects.all(),
-        required=False,
+        required=True,
     )
     tag_color = serializers.CharField(source="tag.color", read_only=True)
     tag_content = serializers.CharField(source="tag.content", read_only=True)
