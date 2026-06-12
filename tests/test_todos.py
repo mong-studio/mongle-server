@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from rest_framework.test import APIClient
 
+from apps.tags.models import Tag
 from apps.todos.models import Todo
 
 
@@ -54,3 +55,27 @@ def test_todo_detail_authenticated(auth_client: APIClient, todo: Todo) -> None:
 def test_todo_detail_not_found(auth_client: APIClient) -> None:
     response = auth_client.get("/api/v1/todos/00000000-0000-0000-0000-000000000000/")
     assert response.status_code == 404
+
+
+# tag_id 없이 생성 요청 시 400 반환 (서버가 기본 태그를 부여하지 않음)
+@pytest.mark.django_db
+def test_todo_create_requires_tag(auth_client: APIClient) -> None:
+    response = auth_client.post(
+        "/api/v1/todos/",
+        {"content": "태그없음", "todo_date": "2026-06-02"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "tag_id" in response.json()
+
+
+# tag_id를 명시하면 생성 성공
+@pytest.mark.django_db
+def test_todo_create_with_tag(auth_client: APIClient, tag: Tag) -> None:
+    response = auth_client.post(
+        "/api/v1/todos/",
+        {"content": "할일", "todo_date": "2026-06-02", "tag_id": tag.tag_id},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.json()["tag_content"] == tag.content

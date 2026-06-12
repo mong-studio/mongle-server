@@ -37,6 +37,7 @@ urlpatterns = [
                 path("auth/signup", signup_views.signup, name="signup"),
                 path("auth/", include("apps.users.urls")),
                 path("characters/", include("apps.characters.urls")),
+                path("tags/", include("apps.tags.urls")),
                 path("todos/", include("apps.todos.urls")),
                 path("quests/", include("apps.quests.urls")),
                 path("posts/", include("apps.posts.urls")),

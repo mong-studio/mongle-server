@@ -12,7 +12,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.characters.models import Character
 from apps.posts.models import Post
 from apps.quests.models import Quest
-from apps.todos.models import Tag, Todo
+from apps.tags.models import Tag
+from apps.todos.models import Todo
 from apps.users.models import User
 
 

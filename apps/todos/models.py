@@ -4,23 +4,6 @@ from django.conf import settings
 from django.db import models
 
 
-class Tag(models.Model):
-    tag_id = models.IntegerField(primary_key=True)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="tags",
-    )
-    content = models.CharField(max_length=20)
-    color = models.CharField(max_length=7)
-
-    class Meta:
-        db_table = "tags"
-        constraints = [
-            models.UniqueConstraint(fields=["user", "content"], name="unique_user_tag"),
-        ]
-
-
 class Todo(models.Model):
     class Status(models.TextChoices):
         IN_PROGRESS = "IN_PROGRESS"
@@ -34,7 +17,7 @@ class Todo(models.Model):
         related_name="todos",
     )
     tag = models.ForeignKey(
-        Tag,
+        "tags.Tag",
         on_delete=models.PROTECT,
         related_name="todos",
     )
@@ -60,7 +43,7 @@ class Schedule(models.Model):
         related_name="schedules",
     )
     tag = models.ForeignKey(
-        Tag,
+        "tags.Tag",
         on_delete=models.PROTECT,
         related_name="schedules",
     )
