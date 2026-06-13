@@ -88,6 +88,7 @@ class Character(models.Model):
     origin_img_url = models.CharField(max_length=500, blank=True)
     gen_img_url = models.CharField(max_length=500)
     persona = models.TextField()
+    visual = models.CharField(max_length=255, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
