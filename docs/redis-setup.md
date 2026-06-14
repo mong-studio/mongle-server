@@ -77,7 +77,7 @@ make docker-up
 | 실행 시각 | 작업 | 설명 |
 |---|---|---|
 | 00:00 | `todos.tasks.fail_incomplete_todos` | 미완료 TODO → FAILED 처리 |
-| 00:01 | `users.tasks.send_reflection_notification` | 전체 유저 회고 알림 발송 |
+| 00:01 | `users.tasks.send_reflection_notification` | 전날 실패 TODO가 있는 유저에게 회고 알림 발송 |
 | 00:02 | `characters.tasks.reset_image_gen_count` | 이미지 생성 횟수 초기화 |
 
 ### 이벤트 트리거 작업
