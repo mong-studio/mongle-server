@@ -109,7 +109,11 @@ def test_generation_job_create_success(auth_client: APIClient) -> None:
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한", "긍정적인"]},
+            {
+                "name": "몽글",
+                "persona": "착한 곰",
+                "personality_keywords": ["활발한", "긍정적인"],
+            },
             format="json",
         )
     assert response.status_code == 202
@@ -131,7 +135,7 @@ def test_generation_job_create_daily_limit_exceeded(
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한"]},
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["활발한"]},
             format="json",
         )
     assert response.status_code == 429
@@ -153,7 +157,7 @@ def test_generation_job_create_character_limit_exceeded(
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한"]},
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["활발한"]},
             format="json",
         )
     assert response.status_code == 422
@@ -484,6 +488,26 @@ def test_character_delete_not_found(auth_client: APIClient) -> None:
         "/api/v1/characters/00000000-0000-0000-0000-000000000000/delete/"
     )
     assert response.status_code == 404
+
+
+# ─── CHAR-002 (추가): name·persona 수신 및 태스크 전달 ──────────────────────
+
+
+@pytest.mark.django_db
+def test_create_job_requires_name_persona_and_passes_to_task(
+    auth_client: APIClient,
+) -> None:
+    with patch(
+        "apps.characters.views.process_character_generation_job.delay"
+    ) as mock_delay:
+        resp = auth_client.post(
+            "/api/v1/characters/generation-jobs/",
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["다정한"]},
+            format="json",
+        )
+    assert resp.status_code == 202
+    args = mock_delay.call_args.args
+    assert args[1] == "몽글" and args[2] == "착한 곰"
 
 
 # ─── TASK: Celery 태스크 AI 계약 정합 ───────────────────────────────────────

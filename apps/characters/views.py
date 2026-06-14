@@ -25,6 +25,7 @@ from apps.characters.serializers import (
     GenerationJobSerializer,
     SourceImageCreateSerializer,
 )
+from apps.characters.tasks import process_character_generation_job
 from common.pagination import paginate_queryset
 
 MAX_ACTIVE_CHARACTERS = 10
@@ -157,9 +158,9 @@ class GenerationJobCreateView(APIView):
 
         ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
 
-        from apps.characters.tasks import process_character_generation_job
-
-        process_character_generation_job.delay(str(job.job_id))
+        process_character_generation_job.delay(
+            str(job.job_id), data["name"], data["persona"]
+        )
 
         return Response(
             {
