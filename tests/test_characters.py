@@ -486,6 +486,45 @@ def test_character_delete_not_found(auth_client: APIClient) -> None:
     assert response.status_code == 404
 
 
+# ─── TASK: Celery 태스크 AI 계약 정합 ───────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_process_job_calls_ai_v1_character_and_maps_image_url(
+    user: User, settings
+) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    fake = MagicMock()
+    fake.json.return_value = {
+        "status": "done",
+        "result": {"image_url": "https://cdn/x.png"},
+        "error": None,
+    }
+    fake.raise_for_status.return_value = None
+
+    with patch("apps.characters.tasks.httpx.post", return_value=fake) as mock_post:
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    called_url = mock_post.call_args.args[0]
+    called_kwargs = mock_post.call_args.kwargs
+    assert called_url == "http://ai.test/v1/character"
+    assert called_kwargs["headers"] == {"X-API-Key": "secret-key"}
+    assert called_kwargs["json"]["name"] == "몽글"
+    assert called_kwargs["json"]["persona"] == "착한 곰"
+    assert called_kwargs["json"]["personality_keywords"] == ["다정한"]
+
+    job.refresh_from_db()
+    assert job.status == "SUCCEEDED"
+    assert job.gen_img_url == "https://cdn/x.png"
+
+
 # ─── QUES-001: 퀘스트 목록 ──────────────────────────────────────────────────
 
 

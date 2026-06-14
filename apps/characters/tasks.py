@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 
 from django.utils import timezone
+import httpx
 
 from celery import shared_task
 
@@ -23,10 +24,11 @@ def reset_image_gen_count() -> None:
 
 
 @shared_task(bind=True, max_retries=3)
-def process_character_generation_job(self, job_id: str) -> None:
-    """AI 서비스에 캐릭터 이미지 생성 요청을 보내고 결과를 저장한다."""
+def process_character_generation_job(
+    self, job_id: str, name: str, persona: str
+) -> None:
+    """AI 서비스(/v1/character)에 캐릭터 생성 요청을 보내고 결과를 저장한다."""
     from django.conf import settings
-    import httpx
 
     from apps.characters.models import CharacterGenerationJob
 
@@ -47,32 +49,27 @@ def process_character_generation_job(self, job_id: str) -> None:
             )
 
         payload = {
+            "user_id": str(job.user_id),
+            "name": name,
+            "persona": persona,
             "personality_keywords": job.personality_keywords,
-            "custom_prompt": job.custom_prompt,
-            "source_img_url": source_img_url,
+            "source_image_url": source_img_url,
         }
 
         response = httpx.post(
-            f"{settings.AI_SERVICE_URL}/generate",
+            f"{settings.AI_SERVICE_URL}/v1/character",
             json=payload,
-            headers={"Authorization": f"Bearer {settings.AI_SERVICE_TOKEN}"},
+            headers={"X-API-Key": settings.AI_SERVICE_TOKEN},
             timeout=120.0,
         )
         response.raise_for_status()
-        data = response.json()
+        result = response.json().get("result") or {}
 
-        job.gen_img_url = data.get("gen_img_url", "")
-        job.gen_img_object_key = data.get("gen_img_object_key", "")
-        job.persona = data.get("persona", "")
+        job.gen_img_url = result.get("image_url", "")
+        job.gen_img_object_key = result.get("gen_img_object_key", "")
         job.status = CharacterGenerationJob.Status.SUCCEEDED
         job.save(
-            update_fields=[
-                "gen_img_url",
-                "gen_img_object_key",
-                "persona",
-                "status",
-                "updated_at",
-            ]
+            update_fields=["gen_img_url", "gen_img_object_key", "status", "updated_at"]
         )
 
     except Exception as exc:
