@@ -52,6 +52,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=LoginType.choices,
         default=LoginType.EMAIL,
     )
+    personalization = models.JSONField(default=dict, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
