@@ -235,6 +235,7 @@ class CharacterListView(APIView):
             character_name=data["name"],
             gen_img_url=job.gen_img_url,
             persona=data["persona"],
+            visual=job.custom_prompt,
         )
 
         job.status = CharacterGenerationJob.Status.CONSUMED

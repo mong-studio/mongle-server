@@ -226,6 +226,29 @@ def test_character_register_success(
     assert succeeded_job.status == CharacterGenerationJob.Status.CONSUMED
 
 
+# 등록 시 job의 custom_prompt가 Character.visual로 저장되는지 확인
+@pytest.mark.django_db
+def test_character_register_saves_custom_prompt_as_visual(
+    auth_client: APIClient, user: User
+) -> None:
+    job = CharacterGenerationJob.objects.create(
+        user=user,
+        personality_keywords=["활발한"],
+        status=CharacterGenerationJob.Status.SUCCEEDED,
+        gen_img_url="https://example.com/gen.png",
+        persona="밝은 캐릭터",
+        custom_prompt="둥근 얼굴에 노란 털",
+    )
+    response = auth_client.post(
+        "/api/v1/characters/",
+        {"gen_job_id": str(job.job_id), "name": "몽글", "persona": "밝은"},
+        format="json",
+    )
+    assert response.status_code == 201
+    character = Character.objects.get(character_id=response.json()["character_id"])
+    assert character.visual == "둥근 얼굴에 노란 털"
+
+
 # 이미 consumed된 job으로 재등록 시도 시 409 반환 확인
 @pytest.mark.django_db
 def test_character_register_job_already_consumed(
