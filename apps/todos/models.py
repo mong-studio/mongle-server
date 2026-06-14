@@ -68,8 +68,16 @@ class Reflection(models.Model):
     reflection_date = models.DateField()
     good_points = models.TextField(null=True, blank=True)
     improvement_points = models.TextField(null=True, blank=True)
+    good_token_rewarded = models.BooleanField(default=False)
+    improvement_token_rewarded = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "reflections"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "reflection_date"],
+                name="unique_user_reflection_date",
+            ),
+        ]
