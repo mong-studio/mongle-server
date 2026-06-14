@@ -187,12 +187,13 @@ class GenerationJobDetailView(APIView):
         return Response(serializer.data)
 
 
-class CharacterRegisterView(APIView):
-    """CHAR-004: 성공한 Job으로 캐릭터 등록"""
+class CharacterListView(APIView):
+    """CHAR-004/005: 캐릭터 등록(POST) 및 목록 조회(GET)"""
 
     permission_classes = (IsAuthenticated,)
 
     def post(self, request: Request) -> Response:
+        """CHAR-004: 성공한 Job으로 캐릭터 등록"""
         serializer = CharacterRegisterSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -250,12 +251,6 @@ class CharacterRegisterView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
-class CharacterListView(APIView):
-    """CHAR-005: 본인 active 캐릭터 목록 (cursor 페이지네이션)"""
-
-    permission_classes = (IsAuthenticated,)
-
     def get(self, request: Request) -> Response:
         try:
             limit = int(request.query_params.get("limit", 20))
@@ -300,7 +295,7 @@ class CharacterListView(APIView):
 
 
 class CharacterDetailView(APIView):
-    """CHAR-006: 캐릭터 상세"""
+    """CHAR-006/007: 캐릭터 상세 조회(GET) 및 soft delete(DELETE)"""
 
     permission_classes = (IsAuthenticated,)
 
@@ -315,13 +310,8 @@ class CharacterDetailView(APIView):
         serializer = CharacterDetailSerializer(character)
         return Response(serializer.data)
 
-
-class CharacterDeleteView(APIView):
-    """CHAR-007: 캐릭터 soft delete"""
-
-    permission_classes = (IsAuthenticated,)
-
     def delete(self, request: Request, character_id: uuid.UUID) -> Response:
+        """CHAR-007: 캐릭터 soft delete"""
         try:
             character = Character.objects.get(
                 character_id=character_id, user=request.user, is_active=True

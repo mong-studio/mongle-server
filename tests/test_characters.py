@@ -209,7 +209,7 @@ def test_character_register_success(
     auth_client: APIClient, succeeded_job: CharacterGenerationJob
 ) -> None:
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {
             "gen_job_id": str(succeeded_job.job_id),
             "name": "내 캐릭터",
@@ -239,7 +239,7 @@ def test_character_register_job_already_consumed(
         persona="페르소나",
     )
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {"gen_job_id": str(job.job_id), "name": "캐릭터", "persona": "페르소나"},
         format="json",
     )
@@ -257,11 +257,31 @@ def test_character_register_job_not_succeeded(
         status=CharacterGenerationJob.Status.QUEUED,
     )
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {"gen_job_id": str(job.job_id), "name": "캐릭터", "persona": "페르소나"},
         format="json",
     )
     assert response.status_code == 400
+
+
+# POST /characters로 등록 후 DELETE /characters/:id로 삭제하는 REST 흐름 확인
+@pytest.mark.django_db
+def test_register_via_post_collection_and_delete_via_delete(
+    auth_client: APIClient,
+    succeeded_job: CharacterGenerationJob,
+    character: Character,
+) -> None:
+    # register: POST /characters (character fixture provides the "last character" guard bypass)
+    resp = auth_client.post(
+        "/api/v1/characters/",
+        {"gen_job_id": str(succeeded_job.job_id), "name": "몽글", "persona": "착한 곰"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    cid = resp.json()["character_id"]
+    # delete: DELETE /characters/:id
+    resp = auth_client.delete(f"/api/v1/characters/{cid}/")
+    assert resp.status_code in (200, 204)
 
 
 # ─── CHAR-005: 캐릭터 목록 ──────────────────────────────────────────────────
@@ -461,9 +481,7 @@ def test_character_detail_not_found(auth_client: APIClient) -> None:
 def test_character_delete_success(
     auth_client: APIClient, character: Character, second_character: Character
 ) -> None:
-    response = auth_client.delete(
-        f"/api/v1/characters/{character.character_id}/delete/"
-    )
+    response = auth_client.delete(f"/api/v1/characters/{character.character_id}/")
     assert response.status_code == 204
     character.refresh_from_db()
     assert character.is_active is False
@@ -474,9 +492,7 @@ def test_character_delete_success(
 def test_character_delete_last_character_rejected(
     auth_client: APIClient, character: Character
 ) -> None:
-    response = auth_client.delete(
-        f"/api/v1/characters/{character.character_id}/delete/"
-    )
+    response = auth_client.delete(f"/api/v1/characters/{character.character_id}/")
     assert response.status_code == 409
     assert response.json()["error"] == "LAST_CHARACTER"
 
@@ -485,7 +501,7 @@ def test_character_delete_last_character_rejected(
 @pytest.mark.django_db
 def test_character_delete_not_found(auth_client: APIClient) -> None:
     response = auth_client.delete(
-        "/api/v1/characters/00000000-0000-0000-0000-000000000000/delete/"
+        "/api/v1/characters/00000000-0000-0000-0000-000000000000/"
     )
     assert response.status_code == 404
 

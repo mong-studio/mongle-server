@@ -1,10 +1,8 @@
 from django.urls import path
 
 from apps.characters.views import (
-    CharacterDeleteView,
     CharacterDetailView,
     CharacterListView,
-    CharacterRegisterView,
     GenerationJobCreateView,
     GenerationJobDetailView,
     QuestListView,
@@ -23,15 +21,9 @@ urlpatterns = [
         GenerationJobDetailView.as_view(),
         name="generation-job-detail",
     ),
-    path("", CharacterListView.as_view(), name="character-list"),
-    path("register/", CharacterRegisterView.as_view(), name="character-register"),
+    path("", CharacterListView.as_view(), name="character-collection"),
     path(
         "<uuid:character_id>/", CharacterDetailView.as_view(), name="character-detail"
-    ),
-    path(
-        "<uuid:character_id>/delete/",
-        CharacterDeleteView.as_view(),
-        name="character-delete",
     ),
     path(
         "<uuid:character_id>/quests/",
