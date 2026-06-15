@@ -60,7 +60,7 @@ def process_character_generation_job(
             f"{settings.AI_SERVICE_URL}/v1/character",
             json=payload,
             headers={"X-API-Key": settings.AI_SERVICE_TOKEN},
-            timeout=120.0,
+            timeout=600.0,
         )
         response.raise_for_status()
         result = response.json().get("result") or {}
