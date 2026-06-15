@@ -42,7 +42,7 @@ def second_character(db, user: User) -> Character:
 
 # S3 presigned PUT URL이 정상 발급되고 source_img_id와 upload URL이 응답에 포함되는지 확인
 @pytest.mark.django_db
-@override_settings(AWS_S3_PREFIX="mongle-village")
+@override_settings(AWS_S3_PREFIX="mongle-village", AWS_S3_BUCKET="test-bucket")
 def test_source_image_create_success(auth_client: APIClient) -> None:
     with patch("infrastructure.storage.s3.get_s3_client") as mock_s3:
         mock_client = MagicMock()
