@@ -57,7 +57,7 @@ class CharacterGenerationJob(models.Model):
         max_length=20, choices=Status.choices, default=Status.QUEUED
     )
     gen_img_object_key = models.CharField(max_length=500, blank=True)
-    gen_img_url = models.CharField(max_length=500, blank=True)
+    gen_img_url = models.TextField(blank=True)
     persona = models.TextField(blank=True)
     error_code = models.CharField(max_length=50, blank=True)
     error_message = models.CharField(max_length=255, blank=True)
@@ -85,8 +85,9 @@ class Character(models.Model):
         related_name="character",
     )
     character_name = models.CharField(max_length=8)
-    origin_img_url = models.CharField(max_length=500, blank=True)
-    gen_img_url = models.CharField(max_length=500)
+    # 이미지 URL은 presigned 서명 쿼리로 500자를 넘을 수 있어 TextField 로 둔다.
+    origin_img_url = models.TextField(blank=True)
+    gen_img_url = models.TextField()
     persona = models.TextField()
     visual = models.CharField(max_length=255, blank=True)
     is_active = models.BooleanField(default=True)
