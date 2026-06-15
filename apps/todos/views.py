@@ -27,6 +27,7 @@ from apps.todos.todo_ai_serializers import (
     TodoGenerateRequestSerializer,
 )
 from apps.users.models import User
+from apps.users.notification_service import create_reflection_notification
 
 
 class InternalServiceTokenPermission(BasePermission):
@@ -241,6 +242,19 @@ class TodoCompleteView(APIView):
 
         todo.status = Todo.Status.COMPLETED
         todo.save(update_fields=["status", "updated_at"])
+
+        if (
+            not Todo.objects.filter(
+                user=request.user,
+                todo_date=todo.todo_date,
+            )
+            .exclude(status=Todo.Status.COMPLETED)
+            .exists()
+        ):
+            create_reflection_notification(
+                user=request.user,
+                reflection_date=todo.todo_date,
+            )
 
         quest = todo.quests.select_related("character").first()
         if quest:
