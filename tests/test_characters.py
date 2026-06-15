@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 import pytest
 from rest_framework.test import APIClient
 
@@ -41,6 +42,7 @@ def second_character(db, user: User) -> Character:
 
 # S3 presigned PUT URL이 정상 발급되고 source_img_id와 upload URL이 응답에 포함되는지 확인
 @pytest.mark.django_db
+@override_settings(AWS_S3_PREFIX="mongle-village")
 def test_source_image_create_success(auth_client: APIClient) -> None:
     with patch("infrastructure.storage.s3.get_s3_client") as mock_s3:
         mock_client = MagicMock()
@@ -64,6 +66,24 @@ def test_source_image_create_success(auth_client: APIClient) -> None:
     assert "source_img_id" in data
     assert "upload" in data
     assert data["upload"]["url"] == "https://s3.example.com/presigned"
+    # 런타임 객체는 공통 네임스페이스 아래로 모은다(IAM mongle-village/* 와 일치).
+    assert data["object_key"].startswith("mongle-village/source-images/")
+
+
+@override_settings(AWS_S3_PREFIX="mongle-village")
+def test_with_prefix_prepends_namespace() -> None:
+    from infrastructure.storage.s3 import with_prefix
+
+    assert (
+        with_prefix("source-images/u/x.png") == "mongle-village/source-images/u/x.png"
+    )
+
+
+@override_settings(AWS_S3_PREFIX="")
+def test_with_prefix_noop_when_empty() -> None:
+    from infrastructure.storage.s3 import with_prefix
+
+    assert with_prefix("source-images/u/x.png") == "source-images/u/x.png"
 
 
 # 허용되지 않는 content_type(image/gif)으로 요청 시 400 반환 확인
@@ -98,6 +118,52 @@ def test_source_image_create_unauthenticated() -> None:
     client = APIClient()
     response = client.post("/api/v1/characters/source-images/", {}, format="json")
     assert response.status_code == 401
+
+
+# presigned URL이 글로벌(s3.amazonaws.com)이 아니라 리전 가상호스팅 엔드포인트로
+# 서명되는지 확인 — 글로벌이면 S3가 리전 호스트로 301 리다이렉트해 브라우저 PUT이
+# "cross-origin redirection"으로 차단된다.
+@override_settings(
+    AWS_S3_BUCKET="test-bucket",
+    AWS_S3_REGION="ap-northeast-2",
+    AWS_ACCESS_KEY_ID="AKIATEST",
+    AWS_SECRET_ACCESS_KEY="secret",
+)
+def test_presigned_url_uses_regional_virtual_hosted_endpoint() -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    from infrastructure.storage.s3 import generate_presigned_put_url
+
+    result = generate_presigned_put_url(
+        object_key="source-images/u/x.png",
+        content_type="image/png",
+        content_length=1024,
+    )
+    parsed = urlparse(result["url"])
+    assert parsed.netloc == "test-bucket.s3.ap-northeast-2.amazonaws.com"
+
+    # Content-Length 는 서명 헤더에 포함하지 않는다 — 브라우저가 임의로 설정하는
+    # 금지 헤더라, 서명에 넣으면 403 SignatureDoesNotMatch 가 난다.
+    signed = parse_qs(parsed.query)["X-Amz-SignedHeaders"][0]
+    assert signed == "content-type;host"
+    assert result["headers"] == {"Content-Type": "image/png"}
+
+
+# AWS_S3_BUCKET 미설정 시 botocore 500 대신 503/명확한 에러 코드 반환 확인
+@pytest.mark.django_db
+@override_settings(AWS_S3_BUCKET="")
+def test_source_image_create_storage_not_configured(auth_client: APIClient) -> None:
+    response = auth_client.post(
+        "/api/v1/characters/source-images/",
+        {
+            "file_name": "photo.jpg",
+            "content_type": "image/jpeg",
+            "content_length": 102400,
+        },
+        format="json",
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == "STORAGE_NOT_CONFIGURED"
 
 
 # ─── CHAR-002: Generation Job 생성 (Celery mocking) ─────────────────────────

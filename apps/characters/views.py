@@ -50,9 +50,13 @@ class SourceImageCreateView(APIView):
         content_type: str = data["content_type"]
         content_length: int = data["content_length"]
 
+        from infrastructure.storage.s3 import with_prefix
+
         ext_map = {"image/jpeg": "jpg", "image/png": "png"}
         ext = ext_map[content_type]
-        object_key = f"source-images/{request.user.pk}/{uuid.uuid4()}.{ext}"  # type: ignore[union-attr]
+        object_key = with_prefix(
+            f"source-images/{request.user.pk}/{uuid.uuid4()}.{ext}"  # type: ignore[union-attr]
+        )
         _ = file_name
 
         expires_at = timezone.now() + timedelta(seconds=PRESIGNED_URL_EXPIRY_SECONDS)
@@ -64,14 +68,24 @@ class SourceImageCreateView(APIView):
             expires_at=expires_at,
         )
 
-        from infrastructure.storage.s3 import generate_presigned_put_url
-
-        upload = generate_presigned_put_url(
-            object_key=object_key,
-            content_type=content_type,
-            content_length=content_length,
-            expiry=PRESIGNED_URL_EXPIRY_SECONDS,
+        from infrastructure.storage.s3 import (
+            StorageNotConfiguredError,
+            generate_presigned_put_url,
         )
+
+        try:
+            upload = generate_presigned_put_url(
+                object_key=object_key,
+                content_type=content_type,
+                content_length=content_length,
+                expiry=PRESIGNED_URL_EXPIRY_SECONDS,
+            )
+        except StorageNotConfiguredError:
+            source_image.delete()
+            return Response(
+                {"error": "STORAGE_NOT_CONFIGURED"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             {
