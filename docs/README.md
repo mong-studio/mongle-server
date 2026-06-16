@@ -5,15 +5,17 @@
 ## 처음 세팅하는 사람
 
 1. [setup-guide.md](setup-guide.md)
-2. [database-guide.md](database-guide.md)
-3. [project-guide.md](project-guide.md)
-4. [git-strategy.md](git-strategy.md)
+2. [local-docker-guide.md](local-docker-guide.md) — Docker만으로 띄우고 싶을 때
+3. [database-guide.md](database-guide.md)
+4. [project-guide.md](project-guide.md)
+5. [git-strategy.md](git-strategy.md)
 
 ## 문서별 역할
 
 | 문서 | 볼 때 |
 | --- | --- |
 | [setup-guide.md](setup-guide.md) | 프로젝트 설치, `.venv`, 서버 실행, Make 명령어가 필요할 때 |
+| [local-docker-guide.md](local-docker-guide.md) | Python/MySQL 설치 없이 Docker만으로 띄우고 시드까지 넣고 싶을 때 (초보자용) |
 | [database-guide.md](database-guide.md) | MySQL, Workbench, DB 계정, 마이그레이션 동기화가 필요할 때 |
 | [project-guide.md](project-guide.md) | 프로젝트 구조, 코드 위치, 개발 원칙을 확인할 때 |
 | [git-strategy.md](git-strategy.md) | 브랜치 전략, 최신화, 커밋 메시지, PR 작성 방법이 필요할 때 |
