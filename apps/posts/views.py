@@ -13,16 +13,22 @@ from apps.posts.tasks import generate_character_reply
 logger = logging.getLogger(__name__)
 
 
+_POST_QUERYSET = Post.objects.select_related("character").prefetch_related(
+    "comments__user",
+    "comments__replies__character",
+)
+
+
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = Post.objects.prefetch_related("comments").order_by("-created_at")
+    queryset = _POST_QUERYSET.order_by("-created_at")
 
 
 class PostDetailView(generics.RetrieveAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = Post.objects.all()
+    queryset = _POST_QUERYSET
     lookup_field = "post_id"
 
 
