@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 import pytest
 from rest_framework.test import APIClient
 
@@ -41,6 +42,7 @@ def second_character(db, user: User) -> Character:
 
 # S3 presigned PUT URL이 정상 발급되고 source_img_id와 upload URL이 응답에 포함되는지 확인
 @pytest.mark.django_db
+@override_settings(AWS_S3_PREFIX="mongle-village", AWS_S3_BUCKET="test-bucket")
 def test_source_image_create_success(auth_client: APIClient) -> None:
     with patch("infrastructure.storage.s3.get_s3_client") as mock_s3:
         mock_client = MagicMock()
@@ -64,6 +66,24 @@ def test_source_image_create_success(auth_client: APIClient) -> None:
     assert "source_img_id" in data
     assert "upload" in data
     assert data["upload"]["url"] == "https://s3.example.com/presigned"
+    # 런타임 객체는 공통 네임스페이스 아래로 모은다(IAM mongle-village/* 와 일치).
+    assert data["object_key"].startswith("mongle-village/source-images/")
+
+
+@override_settings(AWS_S3_PREFIX="mongle-village")
+def test_with_prefix_prepends_namespace() -> None:
+    from infrastructure.storage.s3 import with_prefix
+
+    assert (
+        with_prefix("source-images/u/x.png") == "mongle-village/source-images/u/x.png"
+    )
+
+
+@override_settings(AWS_S3_PREFIX="")
+def test_with_prefix_noop_when_empty() -> None:
+    from infrastructure.storage.s3 import with_prefix
+
+    assert with_prefix("source-images/u/x.png") == "source-images/u/x.png"
 
 
 # 허용되지 않는 content_type(image/gif)으로 요청 시 400 반환 확인
@@ -100,6 +120,52 @@ def test_source_image_create_unauthenticated() -> None:
     assert response.status_code == 401
 
 
+# presigned URL이 글로벌(s3.amazonaws.com)이 아니라 리전 가상호스팅 엔드포인트로
+# 서명되는지 확인 — 글로벌이면 S3가 리전 호스트로 301 리다이렉트해 브라우저 PUT이
+# "cross-origin redirection"으로 차단된다.
+@override_settings(
+    AWS_S3_BUCKET="test-bucket",
+    AWS_S3_REGION="ap-northeast-2",
+    AWS_ACCESS_KEY_ID="AKIATEST",
+    AWS_SECRET_ACCESS_KEY="secret",
+)
+def test_presigned_url_uses_regional_virtual_hosted_endpoint() -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    from infrastructure.storage.s3 import generate_presigned_put_url
+
+    result = generate_presigned_put_url(
+        object_key="source-images/u/x.png",
+        content_type="image/png",
+        content_length=1024,
+    )
+    parsed = urlparse(result["url"])
+    assert parsed.netloc == "test-bucket.s3.ap-northeast-2.amazonaws.com"
+
+    # Content-Length 는 서명 헤더에 포함하지 않는다 — 브라우저가 임의로 설정하는
+    # 금지 헤더라, 서명에 넣으면 403 SignatureDoesNotMatch 가 난다.
+    signed = parse_qs(parsed.query)["X-Amz-SignedHeaders"][0]
+    assert signed == "content-type;host"
+    assert result["headers"] == {"Content-Type": "image/png"}
+
+
+# AWS_S3_BUCKET 미설정 시 botocore 500 대신 503/명확한 에러 코드 반환 확인
+@pytest.mark.django_db
+@override_settings(AWS_S3_BUCKET="")
+def test_source_image_create_storage_not_configured(auth_client: APIClient) -> None:
+    response = auth_client.post(
+        "/api/v1/characters/source-images/",
+        {
+            "file_name": "photo.jpg",
+            "content_type": "image/jpeg",
+            "content_length": 102400,
+        },
+        format="json",
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == "STORAGE_NOT_CONFIGURED"
+
+
 # ─── CHAR-002: Generation Job 생성 (Celery mocking) ─────────────────────────
 
 
@@ -109,7 +175,11 @@ def test_generation_job_create_success(auth_client: APIClient) -> None:
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한", "긍정적인"]},
+            {
+                "name": "몽글",
+                "persona": "착한 곰",
+                "personality_keywords": ["활발한", "긍정적인"],
+            },
             format="json",
         )
     assert response.status_code == 202
@@ -131,7 +201,7 @@ def test_generation_job_create_daily_limit_exceeded(
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한"]},
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["활발한"]},
             format="json",
         )
     assert response.status_code == 429
@@ -153,7 +223,7 @@ def test_generation_job_create_character_limit_exceeded(
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
             "/api/v1/characters/generation-jobs/",
-            {"personality_keywords": ["활발한"]},
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["활발한"]},
             format="json",
         )
     assert response.status_code == 422
@@ -205,7 +275,7 @@ def test_character_register_success(
     auth_client: APIClient, succeeded_job: CharacterGenerationJob
 ) -> None:
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {
             "gen_job_id": str(succeeded_job.job_id),
             "name": "내 캐릭터",
@@ -222,6 +292,29 @@ def test_character_register_success(
     assert succeeded_job.status == CharacterGenerationJob.Status.CONSUMED
 
 
+# 등록 시 job의 custom_prompt가 Character.visual로 저장되는지 확인
+@pytest.mark.django_db
+def test_character_register_saves_custom_prompt_as_visual(
+    auth_client: APIClient, user: User
+) -> None:
+    job = CharacterGenerationJob.objects.create(
+        user=user,
+        personality_keywords=["활발한"],
+        status=CharacterGenerationJob.Status.SUCCEEDED,
+        gen_img_url="https://example.com/gen.png",
+        persona="밝은 캐릭터",
+        custom_prompt="둥근 얼굴에 노란 털",
+    )
+    response = auth_client.post(
+        "/api/v1/characters/",
+        {"gen_job_id": str(job.job_id), "name": "몽글", "persona": "밝은"},
+        format="json",
+    )
+    assert response.status_code == 201
+    character = Character.objects.get(character_id=response.json()["character_id"])
+    assert character.visual == "둥근 얼굴에 노란 털"
+
+
 # 이미 consumed된 job으로 재등록 시도 시 409 반환 확인
 @pytest.mark.django_db
 def test_character_register_job_already_consumed(
@@ -235,7 +328,7 @@ def test_character_register_job_already_consumed(
         persona="페르소나",
     )
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {"gen_job_id": str(job.job_id), "name": "캐릭터", "persona": "페르소나"},
         format="json",
     )
@@ -253,11 +346,31 @@ def test_character_register_job_not_succeeded(
         status=CharacterGenerationJob.Status.QUEUED,
     )
     response = auth_client.post(
-        "/api/v1/characters/register/",
+        "/api/v1/characters/",
         {"gen_job_id": str(job.job_id), "name": "캐릭터", "persona": "페르소나"},
         format="json",
     )
     assert response.status_code == 400
+
+
+# POST /characters로 등록 후 DELETE /characters/:id로 삭제하는 REST 흐름 확인
+@pytest.mark.django_db
+def test_register_via_post_collection_and_delete_via_delete(
+    auth_client: APIClient,
+    succeeded_job: CharacterGenerationJob,
+    character: Character,
+) -> None:
+    # register: POST /characters (character fixture provides the "last character" guard bypass)
+    resp = auth_client.post(
+        "/api/v1/characters/",
+        {"gen_job_id": str(succeeded_job.job_id), "name": "몽글", "persona": "착한 곰"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    cid = resp.json()["character_id"]
+    # delete: DELETE /characters/:id
+    resp = auth_client.delete(f"/api/v1/characters/{cid}/")
+    assert resp.status_code in (200, 204)
 
 
 # ─── CHAR-005: 캐릭터 목록 ──────────────────────────────────────────────────
@@ -457,9 +570,7 @@ def test_character_detail_not_found(auth_client: APIClient) -> None:
 def test_character_delete_success(
     auth_client: APIClient, character: Character, second_character: Character
 ) -> None:
-    response = auth_client.delete(
-        f"/api/v1/characters/{character.character_id}/delete/"
-    )
+    response = auth_client.delete(f"/api/v1/characters/{character.character_id}/")
     assert response.status_code == 204
     character.refresh_from_db()
     assert character.is_active is False
@@ -470,9 +581,7 @@ def test_character_delete_success(
 def test_character_delete_last_character_rejected(
     auth_client: APIClient, character: Character
 ) -> None:
-    response = auth_client.delete(
-        f"/api/v1/characters/{character.character_id}/delete/"
-    )
+    response = auth_client.delete(f"/api/v1/characters/{character.character_id}/")
     assert response.status_code == 409
     assert response.json()["error"] == "LAST_CHARACTER"
 
@@ -481,9 +590,68 @@ def test_character_delete_last_character_rejected(
 @pytest.mark.django_db
 def test_character_delete_not_found(auth_client: APIClient) -> None:
     response = auth_client.delete(
-        "/api/v1/characters/00000000-0000-0000-0000-000000000000/delete/"
+        "/api/v1/characters/00000000-0000-0000-0000-000000000000/"
     )
     assert response.status_code == 404
+
+
+# ─── CHAR-002 (추가): name·persona 수신 및 태스크 전달 ──────────────────────
+
+
+@pytest.mark.django_db
+def test_create_job_requires_name_persona_and_passes_to_task(
+    auth_client: APIClient,
+) -> None:
+    with patch(
+        "apps.characters.views.process_character_generation_job.delay"
+    ) as mock_delay:
+        resp = auth_client.post(
+            "/api/v1/characters/generation-jobs/",
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["다정한"]},
+            format="json",
+        )
+    assert resp.status_code == 202
+    args = mock_delay.call_args.args
+    assert args[1] == "몽글" and args[2] == "착한 곰"
+
+
+# ─── TASK: Celery 태스크 AI 계약 정합 ───────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_process_job_calls_ai_v1_character_and_maps_image_url(
+    user: User, settings
+) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    fake = MagicMock()
+    fake.json.return_value = {
+        "status": "done",
+        "result": {"image_url": "https://cdn/x.png"},
+        "error": None,
+    }
+    fake.raise_for_status.return_value = None
+
+    with patch("apps.characters.tasks.httpx.post", return_value=fake) as mock_post:
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    called_url = mock_post.call_args.args[0]
+    called_kwargs = mock_post.call_args.kwargs
+    assert called_url == "http://ai.test/v1/character"
+    assert called_kwargs["headers"] == {"X-API-Key": "secret-key"}
+    assert called_kwargs["json"]["name"] == "몽글"
+    assert called_kwargs["json"]["persona"] == "착한 곰"
+    assert called_kwargs["json"]["personality_keywords"] == ["다정한"]
+
+    job.refresh_from_db()
+    assert job.status == "SUCCEEDED"
+    assert job.gen_img_url == "https://cdn/x.png"
 
 
 # ─── QUES-001: 퀘스트 목록 ──────────────────────────────────────────────────

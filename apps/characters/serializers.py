@@ -69,6 +69,8 @@ class SourceImageCreateSerializer(serializers.Serializer):
 
 
 class GenerationJobCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=8)
+    persona = serializers.CharField()
     source_img_id = serializers.UUIDField(required=False, allow_null=True)
     personality_keywords = serializers.ListField(
         child=serializers.CharField(max_length=50),

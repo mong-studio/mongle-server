@@ -25,6 +25,7 @@ from apps.characters.serializers import (
     GenerationJobSerializer,
     SourceImageCreateSerializer,
 )
+from apps.characters.tasks import process_character_generation_job
 from common.pagination import paginate_queryset
 
 MAX_ACTIVE_CHARACTERS = 10
@@ -49,9 +50,13 @@ class SourceImageCreateView(APIView):
         content_type: str = data["content_type"]
         content_length: int = data["content_length"]
 
+        from infrastructure.storage.s3 import with_prefix
+
         ext_map = {"image/jpeg": "jpg", "image/png": "png"}
         ext = ext_map[content_type]
-        object_key = f"source-images/{request.user.pk}/{uuid.uuid4()}.{ext}"  # type: ignore[union-attr]
+        object_key = with_prefix(
+            f"source-images/{request.user.pk}/{uuid.uuid4()}.{ext}"  # type: ignore[union-attr]
+        )
         _ = file_name
 
         expires_at = timezone.now() + timedelta(seconds=PRESIGNED_URL_EXPIRY_SECONDS)
@@ -63,14 +68,24 @@ class SourceImageCreateView(APIView):
             expires_at=expires_at,
         )
 
-        from infrastructure.storage.s3 import generate_presigned_put_url
-
-        upload = generate_presigned_put_url(
-            object_key=object_key,
-            content_type=content_type,
-            content_length=content_length,
-            expiry=PRESIGNED_URL_EXPIRY_SECONDS,
+        from infrastructure.storage.s3 import (
+            StorageNotConfiguredError,
+            generate_presigned_put_url,
         )
+
+        try:
+            upload = generate_presigned_put_url(
+                object_key=object_key,
+                content_type=content_type,
+                content_length=content_length,
+                expiry=PRESIGNED_URL_EXPIRY_SECONDS,
+            )
+        except StorageNotConfiguredError:
+            source_image.delete()
+            return Response(
+                {"error": "STORAGE_NOT_CONFIGURED"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             {
@@ -157,9 +172,9 @@ class GenerationJobCreateView(APIView):
 
         ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
 
-        from apps.characters.tasks import process_character_generation_job
-
-        process_character_generation_job.delay(str(job.job_id))
+        process_character_generation_job.delay(
+            str(job.job_id), data["name"], data["persona"]
+        )
 
         return Response(
             {
@@ -186,12 +201,13 @@ class GenerationJobDetailView(APIView):
         return Response(serializer.data)
 
 
-class CharacterRegisterView(APIView):
-    """CHAR-004: 성공한 Job으로 캐릭터 등록"""
+class CharacterListView(APIView):
+    """CHAR-004/005: 캐릭터 등록(POST) 및 목록 조회(GET)"""
 
     permission_classes = (IsAuthenticated,)
 
     def post(self, request: Request) -> Response:
+        """CHAR-004: 성공한 Job으로 캐릭터 등록"""
         serializer = CharacterRegisterSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -233,6 +249,7 @@ class CharacterRegisterView(APIView):
             character_name=data["name"],
             gen_img_url=job.gen_img_url,
             persona=data["persona"],
+            visual=job.custom_prompt,
         )
 
         job.status = CharacterGenerationJob.Status.CONSUMED
@@ -248,12 +265,6 @@ class CharacterRegisterView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
-
-class CharacterListView(APIView):
-    """CHAR-005: 본인 active 캐릭터 목록 (cursor 페이지네이션)"""
-
-    permission_classes = (IsAuthenticated,)
 
     def get(self, request: Request) -> Response:
         try:
@@ -299,7 +310,7 @@ class CharacterListView(APIView):
 
 
 class CharacterDetailView(APIView):
-    """CHAR-006: 캐릭터 상세"""
+    """CHAR-006/007: 캐릭터 상세 조회(GET) 및 soft delete(DELETE)"""
 
     permission_classes = (IsAuthenticated,)
 
@@ -314,13 +325,8 @@ class CharacterDetailView(APIView):
         serializer = CharacterDetailSerializer(character)
         return Response(serializer.data)
 
-
-class CharacterDeleteView(APIView):
-    """CHAR-007: 캐릭터 soft delete"""
-
-    permission_classes = (IsAuthenticated,)
-
     def delete(self, request: Request, character_id: uuid.UUID) -> Response:
+        """CHAR-007: 캐릭터 soft delete"""
         try:
             character = Character.objects.get(
                 character_id=character_id, user=request.user, is_active=True

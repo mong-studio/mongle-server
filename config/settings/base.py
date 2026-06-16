@@ -183,6 +183,10 @@ REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
 AWS_S3_BUCKET = env("AWS_S3_BUCKET", default="")
+# 모든 런타임 S3 객체의 공통 네임스페이스. AI 워커와 동일한 prefix 를 써서
+# 버킷 레이아웃(mongle-village/source-images, /characters, /feeds ...)과 IAM
+# 정책(mongle-village/*)을 일치시킨다.
+AWS_S3_PREFIX = env("AWS_S3_PREFIX", default="mongle-village")
 AWS_S3_REGION = env("AWS_S3_REGION", default="ap-northeast-2")
 AWS_S3_PRESIGNED_URL_EXPIRY = env.int("AWS_S3_PRESIGNED_URL_EXPIRY", default=600)
 AI_SERVICE_URL = env("AI_SERVICE_URL", default="")
