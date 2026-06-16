@@ -298,4 +298,52 @@ docker compose exec -T web python manage.py seed_dev
 
 ---
 
+## 11. (선택) 캐릭터 생성 AI 서비스를 로컬에 연결하기
+
+캐릭터 "생성"은 별도 AI 서비스(`mongle-ai`)를 호출합니다(`AI_SERVICE_URL`). 이게 안 떠
+있으면 생성이 `ConnectError`로 실패하고, **실패해도 하루 생성 한도(3회)를 소모**합니다.
+시드 데이터만 쓸 거면 이 단계는 건너뛰어도 됩니다.
+
+### 1) 호스트에서 mongle-ai 띄우기 (포트 8010)
+
+```bash
+cd ../mongle-ai
+.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8010
+```
+
+> `--host 0.0.0.0`이 중요합니다. `127.0.0.1`로만 바인딩하면 컨테이너의
+> `host.docker.internal`에서 닿지 못합니다.
+
+### 2) `.env`에 AI 주소 지정
+
+```bash
+# 컨테이너 안의 localhost 는 컨테이너 자신이므로, 호스트의 서비스는 host.docker.internal 로 부른다
+AI_SERVICE_URL=http://host.docker.internal:8010
+AI_SERVICE_TOKEN=<mongle-ai 와 동일한 공유 시크릿>
+```
+
+### 3) 컨테이너 재생성 (env 반영)
+
+env 값은 컨테이너 생성 시점에 박히므로, 떠 있는 컨테이너는 재생성해야 새 값을 읽습니다.
+
+```bash
+docker compose down && docker compose up -d
+```
+
+### 4) 연결 확인
+
+```bash
+docker compose exec -T worker python manage.py shell <<'PY'
+from django.conf import settings
+import urllib.request
+print('AI_SERVICE_URL =', settings.AI_SERVICE_URL)
+print('/health →', urllib.request.urlopen(settings.AI_SERVICE_URL + '/health', timeout=5).getcode())
+PY
+```
+
+`/health → 200`이면 연결 성공입니다. 실패가 누적돼 하루 한도가 찼다면
+`reset_limits --keep-seed`(7번 참고)로 풀고 다시 시도하세요.
+
+---
+
 Python을 직접 설치해서 `.venv`로 실행하는 방법은 [setup-guide.md](setup-guide.md)를 참고하세요.
