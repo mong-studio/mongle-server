@@ -125,7 +125,9 @@ class CharacterHome(models.Model):
 
 
 @receiver(post_save, sender=Character)
-def create_character_home(sender, instance, created, **kwargs):
+def create_character_home(
+    sender: type, instance: Character, created: bool, **kwargs: object
+) -> None:
     if created:
         CharacterHome.objects.create(
             character=instance,
