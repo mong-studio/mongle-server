@@ -1,7 +1,17 @@
+import secrets
 import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+EXTERIOR_TYPES = [
+    "house_yellow",
+    "house_blue",
+    "house_green",
+    "house_purple",
+]
 
 
 class SourceImage(models.Model):
@@ -96,6 +106,31 @@ class Character(models.Model):
 
     class Meta:
         db_table = "characters"
+
+
+class CharacterHome(models.Model):
+    house_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    character = models.OneToOneField(
+        Character,
+        on_delete=models.CASCADE,
+        related_name="home",
+    )
+    exterior_type = models.CharField(max_length=30)
+    position_x = models.IntegerField(default=0)
+    position_y = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "character_homes"
+
+
+@receiver(post_save, sender=Character)
+def create_character_home(sender, instance, created, **kwargs):
+    if created:
+        CharacterHome.objects.create(
+            character=instance,
+            exterior_type=secrets.choice(EXTERIOR_TYPES),
+        )
 
 
 class ImgGenLog(models.Model):
