@@ -57,8 +57,8 @@ make docker-up
 > 컨테이너를 띄운 뒤 컨테이너 안에서 마이그레이션과 시드까지 실행해야 합니다.
 >
 > ```bash
-> docker compose exec web python manage.py migrate
-> docker compose exec web python manage.py seed_dev
+> docker compose exec -T web python manage.py migrate
+> docker compose exec -T web python manage.py seed_dev
 > ```
 >
 > 처음이라면 단계별 설명이 있는 [local-docker-guide.md](local-docker-guide.md)를 따라 하세요.

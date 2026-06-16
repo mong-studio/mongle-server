@@ -72,14 +72,19 @@ Starting development server at http://0.0.0.0:8000/
 
 ```bash
 # (1) 데이터베이스 테이블을 만든다
-docker compose exec web python manage.py migrate
+docker compose exec -T web python manage.py migrate
 
 # (2) 기본 계정 + 캐릭터 + 퀘스트 + 피드 데이터를 넣는다
-docker compose exec web python manage.py seed_dev
+docker compose exec -T web python manage.py seed_dev
 ```
 
-`docker compose exec web ...`는 "이미 떠 있는 `web` 컨테이너 **안에서** 명령을 실행"한다는 뜻입니다.
+`docker compose exec -T web ...`는 "이미 떠 있는 `web` 컨테이너 **안에서** 명령을 실행"한다는 뜻입니다.
 내 컴퓨터가 아니라 컨테이너 안의 DB에 데이터가 들어가야 하므로 이 방식이 중요합니다.
+
+> `-T`는 TTY 할당을 끄는 옵션입니다. `migrate`·`seed_dev`처럼 입력 없이 한 번 실행하는
+> 명령은 스크립트/CI 등 TTY가 없는 환경에서도 안전하게 돌도록 `-T`를 붙입니다.
+> (일반 터미널에서 손으로 칠 때는 없어도 동작합니다.) 반대로 대화형으로 들어가는
+> `manage.py shell` 같은 명령은 `-T` 없이 실행해야 합니다.
 
 `seed_dev`가 성공하면 아래처럼 출력됩니다.
 
@@ -142,8 +147,8 @@ git pull
 make docker-up
 
 # 3) (안전하게) 마이그레이션 + 시드 다시 실행 — 새 터미널에서
-docker compose exec web python manage.py migrate
-docker compose exec web python manage.py seed_dev
+docker compose exec -T web python manage.py migrate
+docker compose exec -T web python manage.py seed_dev
 ```
 
 다시 돌리면 기존 환경에서도 아래가 자동으로 정리됩니다.
@@ -166,7 +171,7 @@ docker compose exec web python manage.py seed_dev
 컨테이너 안에서 다시 실행하세요.
 
 ```bash
-docker compose exec web python manage.py seed_dev
+docker compose exec -T web python manage.py seed_dev
 ```
 
 > 다른 팀원 화면에서 데이터가 안 보이는 것도 같은 이유입니다. 각자 자기 Docker DB에
@@ -187,8 +192,8 @@ docker compose exec web python manage.py seed_dev
 - 모델(DB 구조)을 바꿨다면 마이그레이션을 다시 만들고 적용합니다.
 
   ```bash
-  docker compose exec web python manage.py makemigrations
-  docker compose exec web python manage.py migrate
+  docker compose exec -T web python manage.py makemigrations
+  docker compose exec -T web python manage.py migrate
   ```
 
 - 의존성(`pyproject.toml`)을 바꿨다면 이미지를 다시 빌드해야 합니다: `make docker-down` 후 `make docker-up`.
@@ -216,8 +221,8 @@ docker compose down -v
 | `make docker-up` | 컨테이너 전체(web/db/redis/worker)를 빌드 후 실행 |
 | `make docker-down` | 컨테이너를 멈춤 (데이터는 유지) |
 | `make docker-logs` | `web` 컨테이너 로그를 계속 보기 |
-| `docker compose exec web python manage.py migrate` | 컨테이너 안에서 DB 테이블 생성/갱신 |
-| `docker compose exec web python manage.py seed_dev` | 컨테이너 안에서 기본 계정·캐릭터·피드 시드 |
+| `docker compose exec -T web python manage.py migrate` | 컨테이너 안에서 DB 테이블 생성/갱신 |
+| `docker compose exec -T web python manage.py seed_dev` | 컨테이너 안에서 기본 계정·캐릭터·피드 시드 |
 | `docker compose exec web python manage.py shell` | 컨테이너 안에서 Django shell 열기 |
 | `docker compose down -v` | DB 볼륨까지 삭제 (완전 초기화) |
 
@@ -266,7 +271,7 @@ SEED_ADMIN_IMAGE_URL=https://<your-bucket>.s3.ap-northeast-2.amazonaws.com/mongl
 ### 3) 재시드
 
 ```bash
-docker compose exec web python manage.py seed_dev
+docker compose exec -T web python manage.py seed_dev
 ```
 
 재시드하면 기존 캐릭터·피드 이미지(예: 옛 `example.com` placeholder)도 지정한 S3 URL로
