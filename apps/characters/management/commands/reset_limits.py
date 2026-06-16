@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import datetime
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -66,10 +65,7 @@ class Command(BaseCommand):
         return qs.update(is_active=False)
 
     def _reset_daily_generation(self, email: str) -> int:
-        today_start = timezone.make_aware(
-            datetime.datetime.combine(timezone.localdate(), datetime.time.min)
-        )
-        logs = ImgGenLog.objects.filter(user__email=email, created_at__gte=today_start)
-        deleted_count = logs.count()
-        logs.delete()
-        return deleted_count
+        deleted, _ = ImgGenLog.objects.filter(
+            user__email=email, created_at__date=timezone.localdate()
+        ).delete()
+        return deleted
