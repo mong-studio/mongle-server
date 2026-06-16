@@ -22,6 +22,8 @@ services:
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
       MONGLE_AI_API_BASE: ${MONGLE_AI_API_BASE}
       MONGLE_AI_API_KEY: ${MONGLE_AI_API_KEY}
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN}
     depends_on:
       db:
         condition: service_healthy
@@ -48,6 +50,8 @@ services:
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
       MONGLE_AI_API_BASE: ${MONGLE_AI_API_BASE}
       MONGLE_AI_API_KEY: ${MONGLE_AI_API_KEY}
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN}
     depends_on:
       db:
         condition: service_healthy
