@@ -110,10 +110,12 @@ docker compose exec web python manage.py seed_dev
 
    결과가 `{"status": "ok"}`면 정상입니다.
 
-2. **캐릭터 이미지 확인** — 브라우저에서 아래 주소를 열어 여우 그림이 보이면 OK.
+2. **캐릭터 이미지 확인** — 브라우저에서 아래 주소를 열어 그림이 보이면 OK.
+   유저별로 이미지가 다릅니다(demo=여우, admin=토끼).
 
    ```
-   http://localhost:8000/static/seed/mongle-fox.png
+   http://localhost:8000/static/seed/demo-character.png
+   http://localhost:8000/static/seed/admin-character.png
    ```
 
 3. **로그인** — 프론트엔드(웹)에서 아래 계정으로 로그인합니다.
@@ -133,7 +135,7 @@ docker compose exec web python manage.py seed_dev
 시드만 다시 돌리면 됩니다. `seed_dev`는 멱등이라 기존 데이터를 망가뜨리지 않습니다.
 
 ```bash
-# 1) 최신 코드 받기 (변경된 시드 코드 + 여우 이미지 파일이 함께 들어옵니다)
+# 1) 최신 코드 받기 (변경된 시드 코드 + 캐릭터 이미지 파일이 함께 들어옵니다)
 git pull
 
 # 2) 컨테이너가 꺼져 있으면 다시 띄우기
@@ -147,10 +149,11 @@ docker compose exec web python manage.py seed_dev
 다시 돌리면 기존 환경에서도 아래가 자동으로 정리됩니다.
 
 - 데모 계정에 잘못 부여됐던 **admin 권한이 회수**됩니다.
-- 캐릭터 이미지가 **여우 이미지로 갱신**됩니다.
+- 캐릭터 이미지가 **유저별 시드 이미지로 갱신**됩니다(demo=여우, admin=토끼).
 - 그동안 없던 **퀘스트·피드 데이터가 새로 채워집니다.**
 
-> 이미지가 여전히 안 보이면, `git pull`로 `static/seed/mongle-fox.png` 파일이 잘 받아졌는지 확인하세요.
+> 이미지가 여전히 안 보이면, `git pull`로 `static/seed/demo-character.png` ·
+> `static/seed/admin-character.png` 파일이 잘 받아졌는지 확인하세요.
 > 컨테이너는 코드 폴더를 그대로 공유(volume)하므로 이미지 파일만 있으면 재빌드 없이 바로 보입니다.
 
 ---
@@ -217,6 +220,57 @@ docker compose down -v
 | `docker compose exec web python manage.py seed_dev` | 컨테이너 안에서 기본 계정·캐릭터·피드 시드 |
 | `docker compose exec web python manage.py shell` | 컨테이너 안에서 Django shell 열기 |
 | `docker compose down -v` | DB 볼륨까지 삭제 (완전 초기화) |
+
+---
+
+## 10. (선택) 시드 캐릭터 이미지를 S3에 올려서 쓰기
+
+기본값은 dev 서버가 서빙하는 **로컬 static 이미지**(`/static/seed/...`)입니다. 로컬 개발만
+한다면 이걸로 충분합니다. 배포 환경처럼 **S3/CloudFront에 올린 이미지를 쓰고 싶을 때만**
+아래를 따라 하세요.
+
+### 키 규칙 — 실제 유저 업로드와 안 섞이게
+
+실제 캐릭터 생성 이미지는 유저별로 `mongle-village/source-images/<user_id>/...` 아래에
+쌓입니다. 시드 유저의 `user_id`는 환경마다 랜덤이라 미리 그 경로를 만들 수 없으므로,
+시드 이미지는 **`mongle-village/seed/` 아래에 역할로 식별되는 고정 이름**으로 둡니다.
+이러면 S3만 봐도 "이건 시드/데모 자산"임이 드러나고 실제 유저 데이터와 경로가 겹치지 않습니다.
+
+```
+mongle-village/seed/demo-character.png    ← demo 유저 캐릭터(여우)
+mongle-village/seed/admin-character.png   ← admin 유저 캐릭터(토끼)
+```
+
+### 1) S3에 업로드
+
+```bash
+aws s3 cp static/seed/demo-character.png \
+  s3://<your-bucket>/mongle-village/seed/demo-character.png --content-type image/png
+aws s3 cp static/seed/admin-character.png \
+  s3://<your-bucket>/mongle-village/seed/admin-character.png --content-type image/png
+```
+
+> 시드 이미지는 만료되는 presigned URL이 아니라 **항상 떠 있어야** 하므로, 해당 객체를
+> 공개 읽기로 두거나(버킷 정책/ACL) CloudFront로 서빙해야 브라우저에서 바로 보입니다.
+
+### 2) `.env`에 URL 지정 (유저별)
+
+```bash
+SEED_DEMO_IMAGE_URL=https://<your-bucket>.s3.ap-northeast-2.amazonaws.com/mongle-village/seed/demo-character.png
+SEED_ADMIN_IMAGE_URL=https://<your-bucket>.s3.ap-northeast-2.amazonaws.com/mongle-village/seed/admin-character.png
+# CloudFront가 있다면 그 배포 URL을 써도 됩니다.
+```
+
+비워두면 로컬 static(`http://localhost:8000/static/seed/<파일명>`)으로 자동 fallback됩니다.
+
+### 3) 재시드
+
+```bash
+docker compose exec web python manage.py seed_dev
+```
+
+재시드하면 기존 캐릭터·피드 이미지(예: 옛 `example.com` placeholder)도 지정한 S3 URL로
+갱신됩니다.
 
 ---
 
