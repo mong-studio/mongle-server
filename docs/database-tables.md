@@ -2,7 +2,7 @@
 
 mongle-server의 전체 DB 테이블 구성 및 용도 정리.
 
-총 17개 테이블 / 5개 Django 앱
+총 18개 테이블 / 5개 Django 앱
 
 ---
 
@@ -23,6 +23,7 @@ mongle-server의 전체 DB 테이블 구성 및 용도 정리.
   - [source_images](#source_images)
   - [character_generation_jobs](#character_generation_jobs)
   - [characters](#characters)
+  - [character_homes](#character_homes)
   - [img_gen_logs](#img_gen_logs)
 - [Quests 앱](#quests-앱)
   - [quests](#quests)
@@ -242,12 +243,30 @@ AI 서버에 요청하는 캐릭터 생성 작업. Celery 비동기 태스크로
 | user_id | FK → users | 소유 유저 |
 | generation_job_id | OneToOne → character_generation_jobs (SET_NULL, nullable) | 생성 출처 잡 |
 | character_name | CharField(8) | 캐릭터 이름 |
-| origin_img_url | CharField(500) | 원본 이미지 URL |
-| gen_img_url | CharField(500) | AI 생성 이미지 URL |
+| origin_img_url | TextField | 원본 이미지 URL (presigned URL이 500자 초과 가능) |
+| gen_img_url | TextField | AI 생성 이미지 URL |
 | persona | TextField | 캐릭터 페르소나 |
+| visual | CharField(255) | 외관 설명 (custom_prompt 기반) |
 | is_active | BooleanField | 활성 캐릭터 여부 |
 | created_at | DateTimeField | 생성일시 |
 | updated_at | DateTimeField | 수정일시 |
+
+---
+
+### character_homes
+
+캐릭터의 집. 캐릭터 생성 시 자동으로 랜덤 외관 타입이 배정되어 생성됨.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| house_id | UUID (PK) | 식별자 |
+| character_id | OneToOne → characters | 소유 캐릭터 |
+| exterior_type | CharField(30) | 집 외관 타입 (house_yellow / house_blue / house_green / house_purple) |
+| position_x | IntegerField | 마을 내 X 좌표 (기본 0) |
+| position_y | IntegerField | 마을 내 Y 좌표 (기본 0) |
+| created_at | DateTimeField | 생성일시 |
+
+**생성 방식:** `post_save` 시그널로 Character 생성 시 자동 생성
 
 ---
 
@@ -346,6 +365,7 @@ users
  ├── source_images         (1:N) AI 생성용 원본 이미지
  ├── character_generation_jobs (1:N) 캐릭터 생성 작업
  │    └── characters       (1:1) 생성된 캐릭터
+ │         ├── character_homes (1:1) 캐릭터 집 (자동 생성)
  │         ├── quests      (1:N) 퀘스트 (todo 연결)
  │         ├── posts       (1:N) 마을 피드 게시글
  │         └── replies     (1:N) 댓글 답글
