@@ -65,9 +65,22 @@ def test_seed_dev_creates_per_user_sample_data() -> None:
         assert Reflection.objects.filter(user=user).count() == 1
         assert Character.objects.filter(user=user).count() == 1
         character = Character.objects.get(user=user)
-        assert character.gen_img_url.endswith("/static/seed/mongle-fox.png")
+        # 유저별로 다른 캐릭터 이미지가 들어간다(demo=여우, admin=토끼).
+        expected_image = (
+            "/static/seed/demo-character.png"
+            if user.email == "demo@mongle.dev"
+            else "/static/seed/admin-character.png"
+        )
+        assert character.gen_img_url.endswith(expected_image)
         assert Quest.objects.filter(character=character).count() == 3
         assert Post.objects.filter(character=character).count() == 3
+        # 피드 이미지도 같은 캐릭터 이미지를 사용한다.
+        assert (
+            Post.objects.filter(
+                character=character, img_url=character.gen_img_url
+            ).count()
+            == 3
+        )
 
 
 @pytest.mark.django_db

@@ -37,10 +37,23 @@ DEFAULT_TAGS: tuple[tuple[str, str], ...] = (
     ("취미", "#fd9644"),
 )
 
-# 시드 캐릭터 이미지. dev 서버의 static 으로 서빙되며, 다른 호스트(S3/CloudFront 등)로
-# 바꾸려면 SEED_IMAGE_BASE_URL 환경변수만 지정하면 된다.
-SEED_IMAGE_BASE_URL = os.environ.get("SEED_IMAGE_BASE_URL", "http://localhost:8000")
-SEED_CHARACTER_IMAGE_URL = f"{SEED_IMAGE_BASE_URL}/static/seed/mongle-fox.png"
+# 시드 캐릭터/피드 이미지 URL (유저별로 다른 이미지).
+# - 기본값: dev 서버가 서빙하는 로컬 static 파일.
+# - S3/CloudFront 등에 직접 올린 이미지를 쓰려면 아래 env 에 전체 URL 을 넣으면 그대로
+#   사용된다(재시드 시 기존 캐릭터/피드 이미지도 이 값으로 갱신됨).
+#   파일명/키를 역할별로 둬서 어느 유저(seed) 이미지인지 식별 가능하게 한다.
+#   예) SEED_DEMO_IMAGE_URL=https://<bucket>.s3.ap-northeast-2.amazonaws.com/mongle-village/seed/demo-character.png
+SEED_IMAGE_BASE_URL = os.environ.get("SEED_IMAGE_BASE_URL") or "http://localhost:8000"
+
+
+def _seed_image_url(env_key: str, filename: str) -> str:
+    # `.env` 에 빈 값으로 선언돼도(예: SEED_DEMO_IMAGE_URL=) 기본값으로 떨어지도록
+    # get(...) 대신 `or` 로 빈 문자열까지 함께 걸러낸다.
+    return os.environ.get(env_key) or f"{SEED_IMAGE_BASE_URL}/static/seed/{filename}"
+
+
+SEED_DEMO_IMAGE_URL = _seed_image_url("SEED_DEMO_IMAGE_URL", "demo-character.png")
+SEED_ADMIN_IMAGE_URL = _seed_image_url("SEED_ADMIN_IMAGE_URL", "admin-character.png")
 
 
 class Command(BaseCommand):
@@ -59,14 +72,18 @@ class Command(BaseCommand):
         try:
             admin = self._seed_superuser(options["email"], options["password"])
             demo = self._seed_demo_user()
-            for user in (admin, demo):
+            seed_targets = (
+                (admin, SEED_ADMIN_IMAGE_URL),
+                (demo, SEED_DEMO_IMAGE_URL),
+            )
+            for user, image_url in seed_targets:
                 tags = self._seed_tags(user)
                 todos = self._seed_todos(user, tags)
                 self._seed_schedule(user, tags)
                 self._seed_reflection(user)
-                character = self._seed_character(user)
+                character = self._seed_character(user, image_url)
                 quests = self._seed_quests(character, todos)
-                self._seed_posts(character, quests)
+                self._seed_posts(character, quests, image_url)
         except Exception as error:
             self.stderr.write(self.style.ERROR(f"시드 실패: {error}"))
             raise
@@ -169,21 +186,21 @@ class Command(BaseCommand):
             },
         )
 
-    def _seed_character(self, user: Any) -> Character:
+    def _seed_character(self, user: Any, image_url: str) -> Character:
         character, created = Character.objects.get_or_create(
             user=user,
             character_name="몽글",
             defaults={
-                "gen_img_url": SEED_CHARACTER_IMAGE_URL,
+                "gen_img_url": image_url,
                 "persona": "따뜻하고 긍정적인 성격의 몽글이. 사용자를 응원한다.",
-                "visual": "주황빛 털의 아기 여우, 큼직한 꼬리와 발그레한 볼",
+                "visual": "포근한 숲속 마을에 사는 아기 동물 캐릭터",
                 "is_active": True,
             },
         )
         # 이미 만들어진 캐릭터는 get_or_create 가 갱신하지 않으므로, 시드 이미지를
         # 항상 최신으로 맞춰 재실행 시에도 동일한 캐릭터 이미지를 보장한다.
-        if not created and character.gen_img_url != SEED_CHARACTER_IMAGE_URL:
-            character.gen_img_url = SEED_CHARACTER_IMAGE_URL
+        if not created and character.gen_img_url != image_url:
+            character.gen_img_url = image_url
             character.save(update_fields=["gen_img_url"])
         return character
 
@@ -228,7 +245,9 @@ class Command(BaseCommand):
             quests[todo_key] = quest
         return quests
 
-    def _seed_posts(self, character: Character, quests: dict[str, Quest]) -> None:
+    def _seed_posts(
+        self, character: Character, quests: dict[str, Quest], image_url: str
+    ) -> None:
         # (연결할 퀘스트 키, 피드 내용, 좋아요 여부)
         samples = (
             (
@@ -251,12 +270,17 @@ class Command(BaseCommand):
             quest = quests.get(quest_key)
             if quest is None:
                 continue
-            Post.objects.get_or_create(
+            post, created = Post.objects.get_or_create(
                 character=character,
                 content=content,
                 defaults={
                     "quest": quest,
-                    "img_url": SEED_CHARACTER_IMAGE_URL,
+                    "img_url": image_url,
                     "is_liked": is_liked,
                 },
             )
+            # get_or_create 는 기존 피드를 갱신하지 않으므로, 이미지 URL 이 바뀌면
+            # (예: 로컬 static → S3) 재시드 시 기존 피드 이미지도 맞춰 준다.
+            if not created and post.img_url != image_url:
+                post.img_url = image_url
+                post.save(update_fields=["img_url"])
