@@ -198,6 +198,24 @@ docker compose exec -T web python manage.py seed_dev
 
 - 의존성(`pyproject.toml`)을 바꿨다면 이미지를 다시 빌드해야 합니다: `make docker-down` 후 `make docker-up`.
 
+### ❗ 캐릭터를 더 못 만들어요 (생성 한도 / 하루 생성 한도 초과)
+
+두 가지 한도가 있습니다 — **활성 캐릭터 최대 10개**, **하루 생성 최대 3회**.
+하루 한도는 생성 로그(`ImgGenLog`)로 세는데, **생성이 실패해도 로그가 쌓여 한도를 소모**합니다
+(AI 서비스 미연결로 실패가 반복되면 금방 3회를 다 씁니다).
+
+개발용 초기화 명령으로 둘 다 한 번에 풉니다:
+
+```bash
+# 시드(몽글)는 남기고 나머지 캐릭터 비활성화 + 오늘 생성 로그 삭제
+docker compose exec -T web python manage.py reset_limits --email demo@mongle.dev --keep-seed
+
+# 그 계정 캐릭터를 전부 비활성화하려면 --keep-seed 를 뺀다
+docker compose exec -T web python manage.py reset_limits --email demo@mongle.dev
+```
+
+캐릭터는 soft-delete(`is_active=False`)라 행은 남고 한도/주민 목록에서만 빠집니다.
+
 ---
 
 ## 8. 멈추기 / 완전 초기화
@@ -223,6 +241,7 @@ docker compose down -v
 | `make docker-logs` | `web` 컨테이너 로그를 계속 보기 |
 | `docker compose exec -T web python manage.py migrate` | 컨테이너 안에서 DB 테이블 생성/갱신 |
 | `docker compose exec -T web python manage.py seed_dev` | 컨테이너 안에서 기본 계정·캐릭터·피드 시드 |
+| `docker compose exec -T web python manage.py reset_limits --email <이메일> [--keep-seed]` | 캐릭터/하루 생성 한도 초기화 |
 | `docker compose exec web python manage.py shell` | 컨테이너 안에서 Django shell 열기 |
 | `docker compose down -v` | DB 볼륨까지 삭제 (완전 초기화) |
 
