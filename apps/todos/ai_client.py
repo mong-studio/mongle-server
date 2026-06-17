@@ -22,7 +22,7 @@ class TodoAIClient:
 
     def generate(self, *, user_id: str, prompt: str, today: str) -> dict[str, Any]:
         payload = {"user_id": user_id, "prompt": prompt, "today": today}
-        return self._post("/api/v1/todo/generate", payload)
+        return self._post("/v1/todo/generate", payload)
 
     def chat(
         self, *, user_id: str, message: str, today: str, thread_id: str | None
@@ -35,7 +35,7 @@ class TodoAIClient:
         }
         if thread_id:
             payload["thread_id"] = thread_id
-        return self._post("/api/v1/todo/chat", payload)
+        return self._post("/v1/todo/chat", payload)
 
     def generate_quests(
         self,
@@ -45,7 +45,7 @@ class TodoAIClient:
         remaining_daily_quota: int,
     ) -> dict[str, Any]:
         return self._post(
-            "/api/v1/quest/generate",
+            "/v1/quest/generate",
             {
                 "todos": todos,
                 "characters": characters,
