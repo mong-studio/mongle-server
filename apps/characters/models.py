@@ -7,10 +7,10 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 EXTERIOR_TYPES = [
-    "house_yellow",
-    "house_blue",
-    "house_green",
-    "house_purple",
+    "yellow",
+    "blue",
+    "green",
+    "purple",
 ]
 
 
@@ -115,10 +115,11 @@ class CharacterHome(models.Model):
         on_delete=models.CASCADE,
         related_name="home",
     )
-    exterior_type = models.CharField(max_length=30)
-    position_x = models.IntegerField(default=0)
-    position_y = models.IntegerField(default=0)
+    exterior_type = models.CharField(max_length=20)
+    position_x = models.FloatField(default=0.0)
+    position_y = models.FloatField(default=0.0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "character_homes"
