@@ -177,3 +177,34 @@ class LogoutView(APIView):
         response = Response(status=status.HTTP_204_NO_CONTENT)
         clear_refresh_cookie(response)
         return response
+
+
+class ChangePasswordView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request: Request) -> HttpResponseBase:
+        if not isinstance(request.data, dict):
+            return error_response(400, "VALIDATION_ERROR")
+
+        current_password = request.data.get("current_password")
+        new_password_raw = request.data.get("new_password")
+
+        if not isinstance(current_password, str) or not current_password:
+            return validation_error_response(
+                ValidationError(
+                    {"current_password": ["현재 비밀번호를 입력해 주세요."]}
+                )
+            )
+
+        if not request.user.check_password(current_password):  # type: ignore[union-attr]
+            return error_response(400, "INVALID_CURRENT_PASSWORD")
+
+        try:
+            validated_new = validate_password(new_password_raw)
+        except ValidationError as exc:
+            return validation_error_response(exc)
+
+        request.user.set_password(validated_new)  # type: ignore[union-attr]
+        request.user.save(update_fields=["password"])  # type: ignore[union-attr]
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

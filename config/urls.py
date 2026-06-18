@@ -35,6 +35,11 @@ urlpatterns = [
                     name="email-verification-confirm",
                 ),
                 path("auth/signup", signup_views.signup, name="signup"),
+                path(
+                    "auth/password-reset",
+                    signup_views.password_reset,
+                    name="password-reset",
+                ),
                 path("auth/", include("apps.users.urls")),
                 path("characters/", include("apps.characters.urls")),
                 path("tags/", include("apps.tags.urls")),
