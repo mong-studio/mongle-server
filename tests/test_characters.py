@@ -10,7 +10,7 @@ from django.utils import timezone
 import pytest
 from rest_framework.test import APIClient
 
-from apps.characters.models import Character, CharacterGenerationJob
+from apps.characters.models import Character, CharacterGenerationJob, SourceImage
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
@@ -306,14 +306,25 @@ def test_character_register_saves_appearance_as_visual(
         persona="밝은 캐릭터",
         appearance="둥근 얼굴에 노란 털",
     )
+    # 요청에 persona 를 보내도 무시되고, job 의 AI 정제본이 저장돼야 한다.
     response = auth_client.post(
         "/api/v1/characters/",
-        {"gen_job_id": str(job.job_id), "name": "몽글", "persona": "밝은"},
+        {
+            "gen_job_id": str(job.job_id),
+            "name": "몽글",
+            "persona": "사용자가 보낸 원본",
+        },
         format="json",
     )
     assert response.status_code == 201
     character = Character.objects.get(character_id=response.json()["character_id"])
     assert character.visual == "둥근 얼굴에 노란 털"
+    assert character.persona == "밝은 캐릭터"
+
+    # 개인화 프로필(JSON)에 캐릭터 정보가 기록돼야 한다.
+    user.refresh_from_db()
+    assert user.personalization["character"]["persona"] == "밝은 캐릭터"
+    assert user.personalization["character"]["name"] == "몽글"
 
 
 # 이미 consumed된 job으로 재등록 시도 시 409 반환 확인
@@ -545,6 +556,8 @@ def test_character_detail_authenticated(
     assert response.status_code == 200
     payload = response.json()
     assert payload["name"] == "테스트캐릭터"
+    # 원본 사진 없이 만든 캐릭터는 origin_img_url 이 빈 문자열.
+    assert payload["origin_img_url"] == ""
     assert payload["active_quests"] == [
         {
             "quest_id": payload["active_quests"][0]["quest_id"],
@@ -552,6 +565,64 @@ def test_character_detail_authenticated(
             "title": "기획서 초안 쓰기",
         }
     ]
+
+
+# 등록 시 origin_img_url 컬럼에 원본 사진의 S3 object_key가 저장되는지 확인
+@pytest.mark.django_db
+def test_character_register_stores_origin_object_key(
+    auth_client: APIClient, user: User
+) -> None:
+    source_image = SourceImage.objects.create(
+        user=user,
+        object_key="mongle-village/source-images/u/abc.png",
+        content_type="image/png",
+        expires_at=timezone.now(),
+    )
+    job = CharacterGenerationJob.objects.create(
+        user=user,
+        source_image=source_image,
+        personality_keywords=["활발한"],
+        status=CharacterGenerationJob.Status.SUCCEEDED,
+        gen_img_url="https://example.com/gen.png",
+        persona="밝은 캐릭터",
+    )
+    response = auth_client.post(
+        "/api/v1/characters/",
+        {"gen_job_id": str(job.job_id), "name": "몽글", "persona": "x"},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    character = Character.objects.get(character_id=response.json()["character_id"])
+    # URL 이 아니라 object_key(불변)를 저장한다.
+    assert character.origin_img_url == source_image.object_key
+
+
+# 상세 조회 시 저장된 object_key를 presigned GET URL로 서명해 반환하는지 확인
+@pytest.mark.django_db
+def test_character_detail_presigns_origin_on_read(
+    auth_client: APIClient, user: User
+) -> None:
+    object_key = "mongle-village/source-images/u/abc.png"
+    character = Character.objects.create(
+        user=user,
+        character_name="몽글",
+        origin_img_url=object_key,
+        gen_img_url="https://example.com/gen.png",
+        persona="밝은 캐릭터",
+    )
+
+    with patch(
+        "infrastructure.storage.s3.generate_presigned_get_url",
+        return_value="https://s3.example.com/origin-presigned",
+    ) as mock_presign:
+        response = auth_client.get(f"/api/v1/characters/{character.character_id}/")
+
+    assert response.status_code == 200
+    assert (
+        response.json()["origin_img_url"] == "https://s3.example.com/origin-presigned"
+    )
+    assert mock_presign.call_args.args[0] == object_key
 
 
 # 존재하지 않는 character_id로 조회 시 404 반환 확인
@@ -669,6 +740,132 @@ def test_process_job_submits_polls_and_saves_appearance(user: User, settings) ->
     assert job.status == "SUCCEEDED"
     assert job.gen_img_url == "https://cdn/x.png"
     assert job.appearance == "둥근 갈색 몸"
+
+
+# AI 가 생성한 성격/말투/배경이 하나의 persona 텍스트로 합쳐져 저장되는지 확인
+@pytest.mark.django_db
+def test_process_job_composes_persona_from_ai_result(user: User, settings) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-p"}, "error": None}
+    )
+    poll = _mock_response(
+        {
+            "status": "done",
+            "result": {
+                "image_url": "https://cdn/p.png",
+                "appearance": "둥근 갈색 몸",
+                "personality": "밝고 명랑함",
+                "speech_style": "반말, 친근함",
+                "background": "숲속 마을 출신",
+            },
+            "error": None,
+        }
+    )
+
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit),
+        patch("apps.characters.tasks.httpx.get", return_value=poll),
+    ):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    job.refresh_from_db()
+    assert job.persona == (
+        "[성격] 밝고 명랑함\n[말투] 반말, 친근함\n[배경] 숲속 마을 출신"
+    )
+
+
+# compose 로 버려지는 원본(유저 입력 + LLM raw 출력)이 S3 감사 로그로 보존되는지 확인
+@pytest.mark.django_db
+def test_process_job_writes_generation_audit_log(user: User, settings) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-a"}, "error": None}
+    )
+    ai_result = {
+        "image_url": "https://cdn/a.png",
+        "appearance": "둥근 갈색 몸",
+        "personality": "밝고 명랑함",
+        "speech_style": "반말, 친근함",
+        "background": "숲속 마을 출신",
+    }
+    poll = _mock_response({"status": "done", "result": ai_result, "error": None})
+
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit),
+        patch("apps.characters.tasks.httpx.get", return_value=poll),
+        patch("infrastructure.storage.s3.put_json") as mock_put,
+    ):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    assert mock_put.call_count == 1
+    key, payload = mock_put.call_args.args
+    assert "/log/character-gen/dt=" in f"/{key}"
+    assert key.endswith(f"/{job.user_id}/{job.job_id}.json")
+    # 유저 원본 입력 보존
+    assert payload["input"] == {
+        "name": "몽글",
+        "persona": "착한 곰",
+        "personality_keywords": ["다정한"],
+    }
+    # LLM raw 출력 보존 + 합쳐진 persona 동봉
+    assert payload["ai_result"] == ai_result
+    assert payload["composed_persona"] == (
+        "[성격] 밝고 명랑함\n[말투] 반말, 친근함\n[배경] 숲속 마을 출신"
+    )
+    # 서버 end-to-end 소요시간(초) 기록
+    assert isinstance(payload["server_elapsed_seconds"], int | float)
+    assert payload["server_elapsed_seconds"] >= 0
+
+
+# S3 감사 로그 저장이 실패해도 생성 잡은 계속 진행(SUCCEEDED)되는지 확인
+@pytest.mark.django_db
+def test_process_job_succeeds_when_audit_log_fails(user: User, settings) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-f"}, "error": None}
+    )
+    poll = _mock_response(
+        {
+            "status": "done",
+            "result": {"image_url": "https://cdn/f.png", "appearance": "둥근 갈색 몸"},
+            "error": None,
+        }
+    )
+
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit),
+        patch("apps.characters.tasks.httpx.get", return_value=poll),
+        patch(
+            "infrastructure.storage.s3.put_json",
+            side_effect=RuntimeError("S3 down"),
+        ),
+    ):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    job.refresh_from_db()
+    assert job.status == "SUCCEEDED"
 
 
 # 이미지까지: source_image 가 있으면 payload 에 source_image_key/content_type/url 이 채워지는지 확인

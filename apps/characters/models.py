@@ -85,8 +85,11 @@ class Character(models.Model):
         related_name="character",
     )
     character_name = models.CharField(max_length=8)
-    # 이미지 URL은 presigned 서명 쿼리로 500자를 넘을 수 있어 TextField 로 둔다.
+    # 원본 사진의 S3 object_key 를 저장한다(URL 아님). 비공개 객체라 조회 시점에
+    # presigned GET URL 로 서명해 내려준다 — 저장한 URL 이 만료되는 문제를 피하고,
+    # job/source_image(둘 다 SET_NULL)가 지워져도 origin 을 잃지 않는다.
     origin_img_url = models.TextField(blank=True)
+    # 생성 이미지 presigned URL. 서명 쿼리로 500자를 넘을 수 있어 TextField.
     gen_img_url = models.TextField()
     persona = models.TextField()
     visual = models.CharField(max_length=255, blank=True)
