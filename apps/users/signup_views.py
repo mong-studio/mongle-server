@@ -269,6 +269,38 @@ def signup(request: HttpRequest) -> JsonResponse:
     )
 
 
+@csrf_exempt
+@require_POST
+def password_reset(request: HttpRequest) -> JsonResponse:
+    try:
+        body = parse_json_body(request)
+        email = validate_email(body.get("email"))
+        new_password = validate_password(body.get("new_password"))
+    except ValidationError as exc:
+        return validation_error_response(exc)
+
+    raw_token = body.get("verification_token")
+    verification_token = raw_token if isinstance(raw_token, str) and raw_token else ""
+    token_data = _get_verified_token(verification_token) if verification_token else None
+    if (
+        not token_data
+        or token_data.get("email") != email
+        or token_data.get("purpose") != "PASSWORD_RESET"
+    ):
+        return error_response(400, "EMAIL_NOT_VERIFIED")
+
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return error_response(400, "EMAIL_NOT_VERIFIED")
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    _delete_verified_token(verification_token)
+
+    return JsonResponse({}, status=200)
+
+
 def _validate_signup_payload(body: dict[str, Any]) -> dict[str, Any]:
     validators: tuple[tuple[str, Callable[[], Any]], ...] = (
         ("email", lambda: validate_email(body.get("email"))),
