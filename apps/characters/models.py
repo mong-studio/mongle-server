@@ -59,8 +59,8 @@ class CharacterGenerationJob(models.Model):
     gen_img_object_key = models.CharField(max_length=500, blank=True)
     gen_img_url = models.TextField(blank=True)
     persona = models.TextField(blank=True)
-    error_code = models.CharField(max_length=50, blank=True)
-    error_message = models.CharField(max_length=255, blank=True)
+    # AI 생성 외형 묘사. 확정 등록(CHAR-004) 시 Character.visual 로 옮긴다.
+    appearance = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
