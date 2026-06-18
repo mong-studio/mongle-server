@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 import pytest
 from rest_framework.test import APIClient
 
@@ -292,9 +293,9 @@ def test_character_register_success(
     assert succeeded_job.status == CharacterGenerationJob.Status.CONSUMED
 
 
-# 등록 시 job의 custom_prompt가 Character.visual로 저장되는지 확인
+# 등록 시 job의 appearance(AI 생성 외형)가 Character.visual로 저장되는지 확인
 @pytest.mark.django_db
-def test_character_register_saves_custom_prompt_as_visual(
+def test_character_register_saves_appearance_as_visual(
     auth_client: APIClient, user: User
 ) -> None:
     job = CharacterGenerationJob.objects.create(
@@ -303,7 +304,7 @@ def test_character_register_saves_custom_prompt_as_visual(
         status=CharacterGenerationJob.Status.SUCCEEDED,
         gen_img_url="https://example.com/gen.png",
         persona="밝은 캐릭터",
-        custom_prompt="둥근 얼굴에 노란 털",
+        appearance="둥근 얼굴에 노란 털",
     )
     response = auth_client.post(
         "/api/v1/characters/",
@@ -618,40 +619,141 @@ def test_create_job_requires_name_persona_and_passes_to_task(
 # ─── TASK: Celery 태스크 AI 계약 정합 ───────────────────────────────────────
 
 
+def _mock_response(payload: dict) -> MagicMock:
+    resp = MagicMock()
+    resp.json.return_value = payload
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+# 텍스트만: submit(202)→poll(done) 후 gen_img_url과 appearance가 저장되는지 확인
 @pytest.mark.django_db
-def test_process_job_calls_ai_v1_character_and_maps_image_url(
-    user: User, settings
-) -> None:
+def test_process_job_submits_polls_and_saves_appearance(user: User, settings) -> None:
     settings.AI_SERVICE_URL = "http://ai.test"
     settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
     job = CharacterGenerationJob.objects.create(
         user=user, personality_keywords=["다정한"], status="QUEUED"
     )
 
-    fake = MagicMock()
-    fake.json.return_value = {
-        "status": "done",
-        "result": {"image_url": "https://cdn/x.png"},
-        "error": None,
-    }
-    fake.raise_for_status.return_value = None
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-1"}, "error": None}
+    )
+    poll = _mock_response(
+        {
+            "status": "done",
+            "result": {"image_url": "https://cdn/x.png", "appearance": "둥근 갈색 몸"},
+            "error": None,
+        }
+    )
 
-    with patch("apps.characters.tasks.httpx.post", return_value=fake) as mock_post:
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit) as mock_post,
+        patch("apps.characters.tasks.httpx.get", return_value=poll) as mock_get,
+    ):
         from apps.characters.tasks import process_character_generation_job
 
         process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
 
-    called_url = mock_post.call_args.args[0]
-    called_kwargs = mock_post.call_args.kwargs
-    assert called_url == "http://ai.test/v1/character"
-    assert called_kwargs["headers"] == {"X-API-Key": "secret-key"}
-    assert called_kwargs["json"]["name"] == "몽글"
-    assert called_kwargs["json"]["persona"] == "착한 곰"
-    assert called_kwargs["json"]["personality_keywords"] == ["다정한"]
+    # 등록 호출 검증
+    assert mock_post.call_args.args[0] == "http://ai.test/v1/character"
+    post_kwargs = mock_post.call_args.kwargs
+    assert post_kwargs["headers"] == {"X-API-Key": "secret-key"}
+    assert post_kwargs["json"]["name"] == "몽글"
+    assert post_kwargs["json"]["persona"] == "착한 곰"
+    assert post_kwargs["json"]["personality_keywords"] == ["다정한"]
+    assert post_kwargs["json"]["source_image_url"] == ""
+    # 폴링 호출 검증(submit 이 돌려준 job_id 로)
+    assert mock_get.call_args.args[0] == "http://ai.test/v1/character/ai-1"
 
     job.refresh_from_db()
     assert job.status == "SUCCEEDED"
     assert job.gen_img_url == "https://cdn/x.png"
+    assert job.appearance == "둥근 갈색 몸"
+
+
+# 이미지까지: source_image 가 있으면 payload 에 source_image_key/content_type/url 이 채워지는지 확인
+@override_settings(AWS_S3_BUCKET="test-bucket", AWS_S3_REGION="ap-northeast-2")
+@pytest.mark.django_db
+def test_process_job_with_source_image_passes_url(user: User, settings) -> None:
+    from apps.characters.models import SourceImage
+
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    source = SourceImage.objects.create(
+        user=user,
+        object_key="source-images/u1/abc.png",
+        content_type="image/png",
+        status=SourceImage.Status.UPLOAD_COMPLETED,
+        expires_at=timezone.now(),
+    )
+    job = CharacterGenerationJob.objects.create(
+        user=user,
+        source_image=source,
+        personality_keywords=["다정한"],
+        status="QUEUED",
+    )
+
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-2"}, "error": None}
+    )
+    poll = _mock_response(
+        {
+            "status": "done",
+            "result": {"image_url": "https://cdn/y.png", "appearance": "빨간 리본"},
+            "error": None,
+        }
+    )
+
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit) as mock_post,
+        patch("apps.characters.tasks.httpx.get", return_value=poll),
+    ):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert sent["source_image_key"] == "source-images/u1/abc.png"
+    assert sent["source_image_content_type"] == "image/png"
+    assert (
+        sent["source_image_url"]
+        == "https://test-bucket.s3.ap-northeast-2.amazonaws.com/source-images/u1/abc.png"
+    )
+    job.refresh_from_db()
+    assert job.status == "SUCCEEDED"
+    assert job.appearance == "빨간 리본"
+
+
+# 폴링이 error 를 반환하면 job 이 FAILED 로 기록되는지 확인
+@pytest.mark.django_db
+def test_process_job_poll_error_marks_failed(user: User, settings) -> None:
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+
+    submit = _mock_response(
+        {"status": "pending", "result": {"job_id": "ai-3"}, "error": None}
+    )
+    poll = _mock_response(
+        {
+            "status": "error",
+            "result": None,
+            "error": {"code": "character_generation_failed", "message": "boom"},
+        }
+    )
+
+    with (
+        patch("apps.characters.tasks.httpx.post", return_value=submit),
+        patch("apps.characters.tasks.httpx.get", return_value=poll),
+    ):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(str(job.job_id), "몽글", "착한 곰")
+
+    job.refresh_from_db()
+    assert job.status == "FAILED"
 
 
 # ─── QUES-001: 퀘스트 목록 ──────────────────────────────────────────────────
