@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from secrets import compare_digest
 import uuid
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 from rest_framework import generics, status
@@ -30,6 +32,8 @@ from apps.todos.todo_ai_serializers import (
 )
 from apps.users.models import User
 from apps.users.notification_service import create_reflection_notification
+
+logger = logging.getLogger(__name__)
 
 
 class InternalServiceTokenPermission(BasePermission):
@@ -314,7 +318,24 @@ class TodoCompleteView(APIView):
 
         todo.status = Todo.Status.COMPLETED
         todo.save(update_fields=["status", "updated_at"])
+
+        quest_ids = list(
+            todo.quests.filter(status=Quest.Status.IN_PROGRESS).values_list(
+                "quest_id", flat=True
+            )
+        )
         todo.quests.update(status=Quest.Status.COMPLETED, updated_at=timezone.now())
+
+        def _schedule_feeds() -> None:
+            from apps.posts.tasks import generate_feed_post
+
+            for quest_id in quest_ids:
+                try:
+                    generate_feed_post.delay(str(quest_id))
+                except Exception:
+                    logger.warning("피드 생성 예약 실패: quest_id=%s", quest_id)
+
+        transaction.on_commit(_schedule_feeds)
 
         if (
             not Todo.objects.filter(
