@@ -32,6 +32,7 @@ class ActiveQuestSerializer(serializers.ModelSerializer):
 
 class CharacterDetailSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
+    origin_img_url = serializers.SerializerMethodField()
     active_quests = serializers.SerializerMethodField()
 
     class Meta:
@@ -39,6 +40,7 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
         fields = (
             "character_id",
             "name",
+            "origin_img_url",
             "gen_img_url",
             "persona",
             "is_active",
@@ -46,6 +48,26 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
             "active_quests",
         )
         read_only_fields = fields
+
+    def get_origin_img_url(self, obj: Character) -> str:
+        """origin_img_url 컬럼엔 원본 사진의 S3 object_key 가 들어있다.
+
+        비공개 객체라 조회 시점에 presigned GET URL 로 서명해 반환한다. 매번 새로
+        서명하므로 만료 걱정이 없다. 사진 없이 생성했거나 S3 미설정이면 빈 문자열.
+        """
+        object_key = obj.origin_img_url
+        if not object_key:
+            return ""
+
+        from infrastructure.storage.s3 import (
+            StorageNotConfiguredError,
+            generate_presigned_get_url,
+        )
+
+        try:
+            return generate_presigned_get_url(object_key)
+        except StorageNotConfiguredError:
+            return ""
 
     def get_active_quests(self, obj: Character) -> list[dict[str, object]]:
         active_quests = (
@@ -59,7 +81,7 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
 class CharacterRegisterSerializer(serializers.Serializer):
     gen_job_id = serializers.UUIDField()
     name = serializers.CharField(max_length=8)
-    persona = serializers.CharField()
+    # persona 는 등록 시 받지 않는다. AI 가 생성해 job.persona 에 저장된 정제본을 쓴다.
 
 
 class SourceImageCreateSerializer(serializers.Serializer):

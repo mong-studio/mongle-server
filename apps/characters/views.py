@@ -247,13 +247,28 @@ class CharacterListView(APIView):
             user=user,
             generation_job=job,
             character_name=data["name"],
+            # 원본 사진의 S3 object_key 를 저장(조회 시점에 presign). 사진 없으면 빈 값.
+            origin_img_url=job.source_image.object_key if job.source_image else "",
             gen_img_url=job.gen_img_url,
-            persona=data["persona"],
+            persona=job.persona,
             visual=job.appearance,
         )
 
         job.status = CharacterGenerationJob.Status.CONSUMED
         job.save(update_fields=["status", "updated_at"])
+
+        # 개인화용으로 확정된 캐릭터 정보를 유저 프로필(JSON)에 기록한다.
+        user.personalization = {
+            **user.personalization,
+            "character": {
+                "character_id": str(character.character_id),
+                "name": character.character_name,
+                "persona": character.persona,
+                "visual": character.visual,
+                "gen_img_url": character.gen_img_url,
+            },
+        }
+        user.save(update_fields=["personalization"])
 
         return Response(
             {

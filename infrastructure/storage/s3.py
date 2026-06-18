@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import boto3
@@ -85,6 +86,42 @@ def generate_presigned_put_url(
             "Content-Type": content_type,
         },
     }
+
+
+def generate_presigned_get_url(object_key: str, expiry: int | None = None) -> str:
+    """비공개 객체를 만료 시간 동안 직접 읽게 하는 presigned GET URL을 생성한다.
+
+    원본 사진(origin)·생성 이미지처럼 브라우저가 S3 에서 바로 받아야 하는
+    객체에 쓴다. AI 워커가 gen_img_url 을 만드는 방식과 동일(get_object presign).
+    """
+    if expiry is None:
+        expiry = settings.AWS_S3_PRESIGNED_URL_EXPIRY
+
+    _ensure_storage_configured()
+    client = get_s3_client()
+    return str(
+        client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.AWS_S3_BUCKET, "Key": object_key},
+            ExpiresIn=expiry,
+        )
+    )
+
+
+def put_json(object_key: str, payload: dict[str, Any]) -> None:
+    """JSON 직렬화한 payload 를 S3 object_key 에 올린다(서버 측 직접 PUT).
+
+    감사 로그처럼 브라우저를 거치지 않는 서버 전용 객체에 쓴다.
+    object_key 는 호출부에서 with_prefix() 를 적용한 최종 키여야 한다.
+    """
+    _ensure_storage_configured()
+    client = get_s3_client()
+    client.put_object(
+        Bucket=settings.AWS_S3_BUCKET,
+        Key=object_key,
+        Body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        ContentType="application/json",
+    )
 
 
 def check_object_exists(object_key: str) -> bool:
