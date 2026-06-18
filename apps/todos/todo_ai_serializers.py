@@ -38,10 +38,60 @@ class TodoCommitRequestSerializer(serializers.Serializer[dict[str, Any]]):
         return attrs
 
 
+class QuestDraftSerializer(serializers.Serializer[dict[str, Any]]):
+    character_id = serializers.UUIDField()
+    content = serializers.CharField()
+
+
+class TodoConfirmItemSerializer(serializers.Serializer[dict[str, Any]]):
+    content = serializers.CharField(max_length=20)
+    todo_date = serializers.DateField()
+    tag_id = serializers.IntegerField(required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=20),
+        allow_empty=True,
+        required=False,
+    )
+    quest = QuestDraftSerializer(required=False, allow_null=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "tag_id" not in attrs and "tags" not in attrs:
+            raise serializers.ValidationError("tag_id 또는 tags 중 하나는 필요합니다.")
+        return attrs
+
+
+class TodoConfirmRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    todos = TodoConfirmItemSerializer(many=True)
+
+    def validate_todos(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not value:
+            raise serializers.ValidationError("최소 한 개 이상의 TODO가 필요합니다.")
+        return value
+
+
+class TodoQuestPreviewItemSerializer(serializers.Serializer[dict[str, Any]]):
+    content = serializers.CharField(max_length=20)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=20),
+        allow_empty=True,
+        required=False,
+    )
+
+
+class TodoQuestPreviewRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    todos = TodoQuestPreviewItemSerializer(many=True)
+
+    def validate_todos(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not value:
+            raise serializers.ValidationError("최소 한 개 이상의 TODO가 필요합니다.")
+        return value
+
+
 class QuestPreviewSerializer(serializers.Serializer[dict[str, Any]]):
     quest_id = serializers.UUIDField()
     content = serializers.CharField()
     character_id = serializers.UUIDField()
+    character_name = serializers.CharField()
 
 
 class SavedTodoSerializer(serializers.Serializer[dict[str, Any]]):

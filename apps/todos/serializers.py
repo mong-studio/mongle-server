@@ -12,6 +12,7 @@ class TodoSerializer(serializers.ModelSerializer):
     )
     tag_color = serializers.CharField(source="tag.color", read_only=True)
     tag_content = serializers.CharField(source="tag.content", read_only=True)
+    quest = serializers.SerializerMethodField()
 
     class Meta:
         model = Todo
@@ -23,6 +24,7 @@ class TodoSerializer(serializers.ModelSerializer):
             "tag_id",
             "tag_color",
             "tag_content",
+            "quest",
             "created_at",
         )
         read_only_fields = (
@@ -30,5 +32,17 @@ class TodoSerializer(serializers.ModelSerializer):
             "status",
             "tag_color",
             "tag_content",
+            "quest",
             "created_at",
         )
+
+    def get_quest(self, obj: Todo) -> dict[str, object] | None:
+        quest = next(iter(obj.quests.all()), None)
+        if quest is None:
+            return None
+        return {
+            "quest_id": quest.quest_id,
+            "content": quest.content,
+            "character_id": quest.character_id,
+            "character_name": quest.character.character_name,
+        }
