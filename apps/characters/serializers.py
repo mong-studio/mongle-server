@@ -142,8 +142,10 @@ class GenerationJobCreateSerializer(serializers.Serializer):
     source_img_id = serializers.UUIDField(required=False, allow_null=True)
     personality_keywords = serializers.ListField(
         child=serializers.CharField(max_length=50),
-        min_length=1,
+        min_length=0,
         max_length=3,
+        required=False,
+        default=list,
     )
     custom_prompt = serializers.CharField(
         max_length=200, required=False, allow_blank=True, default=""
