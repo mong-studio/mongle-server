@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from rest_framework import serializers
 
 from apps.characters.models import Character, CharacterGenerationJob, SourceImage
@@ -5,9 +7,42 @@ from apps.quests.models import Quest
 from apps.todos.models import Todo
 
 
+def _resolve_gen_img_url(raw: str) -> str:
+    """gen_img_url 컬럼이 S3 presigned URL이면 object key를 추출해 새로 서명해 반환한다.
+
+    presigned URL 만료 문제를 해결하기 위해 origin_img_url과 동일한 패턴을 적용한다.
+    S3 URL(.amazonaws.com)이 아니면 원본값을 그대로 반환한다.
+    """
+    if not raw:
+        return ""
+
+    from infrastructure.storage.s3 import (
+        StorageNotConfiguredError,
+        generate_presigned_get_url,
+    )
+
+    parsed = urlparse(raw)
+
+    if parsed.scheme in ("http", "https"):
+        if not parsed.hostname or not parsed.hostname.endswith(".amazonaws.com"):
+            return raw
+        object_key = parsed.path.lstrip("/")
+    else:
+        object_key = raw
+
+    if not object_key:
+        return ""
+
+    try:
+        return generate_presigned_get_url(object_key)
+    except StorageNotConfiguredError:
+        return raw
+
+
 class CharacterListItemSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
     active_quest_count = serializers.IntegerField(read_only=True)
+    gen_img_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Character
@@ -18,6 +53,9 @@ class CharacterListItemSerializer(serializers.ModelSerializer):
             "active_quest_count",
         )
         read_only_fields = fields
+
+    def get_gen_img_url(self, obj: Character) -> str:
+        return _resolve_gen_img_url(obj.gen_img_url)
 
 
 class ActiveQuestSerializer(serializers.ModelSerializer):
@@ -33,6 +71,7 @@ class ActiveQuestSerializer(serializers.ModelSerializer):
 class CharacterDetailSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
     origin_img_url = serializers.SerializerMethodField()
+    gen_img_url = serializers.SerializerMethodField()
     active_quests = serializers.SerializerMethodField()
 
     class Meta:
@@ -48,6 +87,9 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
             "active_quests",
         )
         read_only_fields = fields
+
+    def get_gen_img_url(self, obj: Character) -> str:
+        return _resolve_gen_img_url(obj.gen_img_url)
 
     def get_origin_img_url(self, obj: Character) -> str:
         """origin_img_url 컬럼엔 원본 사진의 S3 object_key 가 들어있다.
@@ -113,7 +155,10 @@ class GenerationJobSerializer(serializers.ModelSerializer):
 
     def get_result(self, obj: CharacterGenerationJob) -> dict | None:
         if obj.status == CharacterGenerationJob.Status.SUCCEEDED:
-            return {"gen_img_url": obj.gen_img_url, "persona": obj.persona}
+            return {
+                "gen_img_url": _resolve_gen_img_url(obj.gen_img_url),
+                "persona": obj.persona,
+            }
         return None
 
 
