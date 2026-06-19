@@ -94,8 +94,9 @@ def test_todo_chat_returns_follow_up_for_authenticated_user(auth_client) -> None
 
 
 @pytest.mark.django_db
-@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
-def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> None:
+def test_todo_planner_confirm_persists_todos_and_schedules(
+    auth_client, character
+) -> None:
     today = timezone.localdate().isoformat()
     with patch("apps.todos.views._todo_ai_client") as factory:
         factory.return_value.generate_quests.return_value = {
@@ -104,7 +105,7 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
         }
 
         response = auth_client.post(
-            "/api/v1/todos/commit/",
+            "/api/v1/todos/planner-confirm/",
             data={
                 "todos": [{"title": "헬스 30분", "due_date": today, "tags": ["건강"]}],
                 "calendar_events": [
@@ -116,7 +117,6 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
                 ],
             },
             content_type="application/json",
-            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 201
@@ -127,6 +127,68 @@ def test_todo_commit_persists_todos_and_schedules(auth_client, character) -> Non
     assert response.json()["todos"][0]["content"] == "헬스 30분"
     assert response.json()["calendar_events"][0]["title"] == "프로젝트 발표"
     factory.return_value.generate_quests.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_todo_planner_confirm_routes_items_by_due_date(auth_client, character) -> None:
+    today = timezone.localdate()
+    tomorrow = today + timezone.timedelta(days=1)
+
+    with patch("apps.todos.views._todo_ai_client") as factory:
+        factory.return_value.generate_quests.return_value = {
+            "generated": [],
+            "skipped": [],
+        }
+
+        response = auth_client.post(
+            "/api/v1/todos/planner-confirm/",
+            data={
+                "todos": [
+                    {
+                        "title": "내일 발표 자료 정리",
+                        "due_date": tomorrow.isoformat(),
+                        "tags": ["업무"],
+                    }
+                ],
+                "calendar_events": [
+                    {
+                        "title": "오늘 정처기 오답 복습",
+                        "due_date": today.isoformat(),
+                        "tags": ["공부"],
+                    }
+                ],
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == 201
+    assert Todo.objects.filter(
+        content="오늘 정처기 오답 복습", todo_date=today
+    ).exists()
+    assert Schedule.objects.filter(
+        title="내일 발표 자료 정리",
+        start_date=tomorrow,
+        end_date=tomorrow,
+    ).exists()
+    assert response.json()["todos"][0]["content"] == "오늘 정처기 오답 복습"
+    assert response.json()["calendar_events"][0]["title"] == "내일 발표 자료 정리"
+    factory.return_value.generate_quests.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_todo_planner_confirm_requires_authentication(client) -> None:
+    today = timezone.localdate().isoformat()
+
+    response = client.post(
+        "/api/v1/todos/planner-confirm/",
+        data={
+            "todos": [{"title": "헬스 30분", "due_date": today, "tags": ["건강"]}],
+            "calendar_events": [],
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 401
 
 
 @pytest.mark.django_db
@@ -146,8 +208,7 @@ def test_todo_commit_rejects_missing_internal_token(auth_client) -> None:
 
 
 @pytest.mark.django_db
-@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
-def test_todo_commit_creates_quest_when_ai_returns_mapping(
+def test_todo_planner_confirm_creates_quest_when_ai_returns_mapping(
     auth_client, character
 ) -> None:
     today = timezone.localdate().isoformat()
@@ -168,13 +229,12 @@ def test_todo_commit_creates_quest_when_ai_returns_mapping(
         factory.return_value.generate_quests.side_effect = _fake_generate_quests
 
         response = auth_client.post(
-            "/api/v1/todos/commit/",
+            "/api/v1/todos/planner-confirm/",
             data={
                 "todos": [{"title": "산책", "due_date": today, "tags": ["건강"]}],
                 "calendar_events": [],
             },
             content_type="application/json",
-            HTTP_X_INTERNAL_SERVICE_TOKEN=TEST_INTERNAL_TOKEN,
         )
 
     assert response.status_code == 201
