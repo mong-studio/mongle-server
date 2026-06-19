@@ -390,3 +390,46 @@ def test_todo_ai_client_uses_fastapi_quest_path(monkeypatch) -> None:
 
     assert result == {"generated": [], "skipped": []}
     assert seen["path"] == "/v1/quest/generate"
+
+
+# TODO AI 클라이언트가 캐릭터 생성 경로와 동일하게 httpx 기반 요청을 사용하는지 확인
+def test_todo_ai_client_request_uses_httpx_with_internal_headers() -> None:
+    with patch("apps.todos.ai_client.httpx.request") as request_mock:
+        request_mock.return_value.json.return_value = {
+            "status": "done",
+            "result": {"ok": True},
+        }
+        request_mock.return_value.raise_for_status.return_value = None
+
+        client = TodoAIClient(base_url="https://ai.test/", api_key="token")
+        result = client._request(
+            "POST", "/v1/probe", payload={"hello": "world"}, timeout=7
+        )
+
+    assert result == {"status": "done", "result": {"ok": True}}
+    request_mock.assert_called_once()
+    _, url = request_mock.call_args.args
+    kwargs = request_mock.call_args.kwargs
+    assert url == "https://ai.test/v1/probe"
+    assert kwargs["json"] == {"hello": "world"}
+    assert kwargs["timeout"] == 7
+    assert kwargs["headers"]["X-API-Key"] == "token"
+    assert kwargs["headers"]["X-Internal-Service-Token"] == "token"
+
+
+def test_todo_ai_client_request_maps_http_status_errors() -> None:
+    import httpx
+
+    request = httpx.Request("POST", "https://ai.test/v1/probe")
+    response = httpx.Response(403, text="error code: 1010", request=request)
+
+    with patch("apps.todos.ai_client.httpx.request") as request_mock:
+        request_mock.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Forbidden",
+            request=request,
+            response=response,
+        )
+
+        client = TodoAIClient(base_url="https://ai.test", api_key="token")
+        with pytest.raises(TodoAIClientError, match="mongle-ai HTTP 403"):
+            client._request("POST", "/v1/probe", payload={})
