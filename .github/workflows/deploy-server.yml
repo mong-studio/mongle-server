@@ -133,10 +133,11 @@ jobs:
         run: |
           IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
           COMPOSE_B64=$(base64 -w0 docker-compose.prod.yml)
+          NGINX_B64=$(base64 -w0 nginx/api.conf)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.BACKEND_EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters "{\"commands\":[\"set -ex && mkdir -p /home/ubuntu/mongle-server && echo ${COMPOSE_B64} | base64 -d > /home/ubuntu/mongle-server/docker-compose.prod.yml && cd /home/ubuntu/mongle-server && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml pull && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate --no-input && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d --remove-orphans && docker image prune -f && sleep 10 && set +e && python3 -c \\\"import socket; socket.create_connection(('localhost', 8000), 5)\\\"; HEALTH=\$?; set -e && if [ \$HEALTH -ne 0 ]; then docker ps -a; docker logs mongle-server-web-1 --tail=100; exit \$HEALTH; fi && echo Deployed: ${IMAGE_TAG}\"]}" \
+            --parameters "{\"commands\":[\"set -ex && mkdir -p /home/ubuntu/mongle-server && echo ${COMPOSE_B64} | base64 -d > /home/ubuntu/mongle-server/docker-compose.prod.yml && mkdir -p /home/ubuntu/mongle-server/nginx && echo ${NGINX_B64} | base64 -d > /home/ubuntu/mongle-server/nginx/api.conf && cd /home/ubuntu/mongle-server && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml pull && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate --no-input && IMAGE_TAG=${IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d --remove-orphans && docker image prune -f && sleep 10 && set +e && python3 -c \\\"import socket; socket.create_connection(('localhost', 8000), 5)\\\"; HEALTH=\$?; set -e && if [ \$HEALTH -ne 0 ]; then docker ps -a; docker logs mongle-server-web-1 --tail=100; exit \$HEALTH; fi && echo Deployed: ${IMAGE_TAG}\"]}" \
             --query "Command.CommandId" \
             --output text)
 
