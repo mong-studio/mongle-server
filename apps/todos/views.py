@@ -132,56 +132,73 @@ class TodoCommitAIView(APIView):
         serializer = TodoCommitRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = _resolve_user(request)
-        todos_payload = serializer.validated_data.get("todos", [])
-        events_payload = serializer.validated_data.get("calendar_events", [])
+        return _save_todo_candidates(user, serializer.validated_data)
 
-        saved_todos = [
-            Todo.objects.create(
-                user=user,
-                tag=_ensure_tag(item.get("tags") or [], user),
-                content=item["title"],
-                todo_date=item["due_date"],
-            )
-            for item in todos_payload
-        ]
-        saved_events = [
-            Schedule.objects.create(
-                user=user,
-                tag=_ensure_tag(item.get("tags") or [], user),
-                title=item["title"],
-                start_date=item["due_date"],
-                end_date=item["due_date"],
-            )
-            for item in events_payload
-        ]
 
-        quests_by_todo, quest_triggered = _assign_quests_to_todos(user, saved_todos)
+class TodoPlannerConfirmView(APIView):
+    permission_classes = (IsAuthenticated,)
 
-        todo_data = SavedTodoSerializer(
-            [_serialize_saved_todo(todo, quests_by_todo) for todo in saved_todos],
-            many=True,
-        ).data
-        schedule_data = SavedScheduleSerializer(
-            [
-                {
-                    "schedule_id": event.schedule_id,
-                    "title": event.title,
-                    "start_date": event.start_date,
-                    "end_date": event.end_date,
-                    "tags": [event.tag.content],
-                }
-                for event in saved_events
-            ],
-            many=True,
-        ).data
-        return Response(
-            {
-                "todos": todo_data,
-                "calendar_events": schedule_data,
-                "quest_distribution_triggered": quest_triggered,
-            },
-            status=status.HTTP_201_CREATED,
+    def post(self, request) -> Response:
+        serializer = TodoCommitRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return _save_todo_candidates(request.user, serializer.validated_data)
+
+
+def _save_todo_candidates(user: User, validated_data: dict) -> Response:
+    todos_payload = validated_data.get("todos", [])
+    events_payload = validated_data.get("calendar_events", [])
+    today = timezone.localdate()
+    candidates = [*todos_payload, *events_payload]
+    todo_candidates = [item for item in candidates if item["due_date"] == today]
+    event_candidates = [item for item in candidates if item["due_date"] != today]
+
+    saved_todos = [
+        Todo.objects.create(
+            user=user,
+            tag=_ensure_tag(item.get("tags") or [], user),
+            content=item["title"],
+            todo_date=item["due_date"],
         )
+        for item in todo_candidates
+    ]
+    saved_events = [
+        Schedule.objects.create(
+            user=user,
+            tag=_ensure_tag(item.get("tags") or [], user),
+            title=item["title"],
+            start_date=item["due_date"],
+            end_date=item["due_date"],
+        )
+        for item in event_candidates
+    ]
+
+    quests_by_todo, quest_triggered = _assign_quests_to_todos(user, saved_todos)
+
+    todo_data = SavedTodoSerializer(
+        [_serialize_saved_todo(todo, quests_by_todo) for todo in saved_todos],
+        many=True,
+    ).data
+    schedule_data = SavedScheduleSerializer(
+        [
+            {
+                "schedule_id": event.schedule_id,
+                "title": event.title,
+                "start_date": event.start_date,
+                "end_date": event.end_date,
+                "tags": [event.tag.content],
+            }
+            for event in saved_events
+        ],
+        many=True,
+    ).data
+    return Response(
+        {
+            "todos": todo_data,
+            "calendar_events": schedule_data,
+            "quest_distribution_triggered": quest_triggered,
+        },
+        status=status.HTTP_201_CREATED,
+    )
 
 
 class TodoConfirmView(APIView):

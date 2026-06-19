@@ -8,6 +8,7 @@ from apps.todos.views import (
     TodoDetailView,
     TodoGenerateAIView,
     TodoListCreateView,
+    TodoPlannerConfirmView,
     TodoQuestPreviewView,
 )
 
@@ -15,6 +16,11 @@ urlpatterns = [
     path("generate/", TodoGenerateAIView.as_view(), name="todo-generate"),
     path("chat/", TodoChatAIView.as_view(), name="todo-chat"),
     path("commit/", TodoCommitAIView.as_view(), name="todo-commit"),
+    path(
+        "planner-confirm/",
+        TodoPlannerConfirmView.as_view(),
+        name="todo-planner-confirm",
+    ),
     path("quest-preview/", TodoQuestPreviewView.as_view(), name="todo-quest-preview"),
     path("confirm/", TodoConfirmView.as_view(), name="todo-confirm"),
     path("", TodoListCreateView.as_view(), name="todo-list"),
