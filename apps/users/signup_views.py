@@ -22,6 +22,7 @@ import redis as redis_lib
 
 from apps.users.api_errors import error_response, validation_error_response
 from apps.users.models import User
+from apps.users.refresh_token_service import revoke_all_user_tokens
 from apps.users.validators import (
     collect_validated_fields,
     parse_json_body,
@@ -296,6 +297,9 @@ def password_reset(request: HttpRequest) -> JsonResponse:
 
     user.set_password(new_password)
     user.save(update_fields=["password"])
+    # 비밀번호 재설정 시 전 기기의 자동로그인 토큰을 무효화한다(스펙).
+    # 재설정은 비인증 흐름이라 새 비밀번호로 재로그인해야 한다.
+    revoke_all_user_tokens(user)
     _delete_verified_token(verification_token)
 
     return JsonResponse({}, status=200)
