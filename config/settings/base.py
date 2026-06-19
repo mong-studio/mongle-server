@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 import environ
 
 from celery.schedules import crontab
@@ -53,6 +54,9 @@ ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
 # 기본 CORS_ALLOW_HEADERS에 "authorization"이 포함되어 Bearer 토큰 전송도 가능.
 CORS_ALLOWED_ORIGINS = env("DJANGO_CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
+# 프론트(apiClient)가 보내는 커스텀 헤더를 preflight 허용 목록에 추가한다.
+# 기본 헤더(authorization/content-type 등)에 더해 X-Client-Type/-Version 허용.
+CORS_ALLOW_HEADERS = (*default_headers, "x-client-type", "x-client-version")
 
 INSTALLED_APPS = [
     # Django 기본 앱 (건드리지 않음)
