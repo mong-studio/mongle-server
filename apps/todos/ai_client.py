@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import time
 from typing import Any
-from urllib import error, request
 from urllib.parse import urlparse
 from uuid import uuid4
+
+import httpx
 
 # generate/chat 의 planner LLM 은 RunPod Pod 프록시(100s)를 넘기므로
 # mongle-ai 가 submit(202)+poll(GET) 비동기 잡으로 응답한다.
@@ -129,7 +129,6 @@ class TodoAIClient:
         if parsed_base_url.scheme not in {"http", "https"}:
             raise TodoAIClientError("mongle-ai base URL must use http or https")
 
-        raw = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {
             "Content-Type": "application/json",
             "X-Request-Id": str(uuid4()),
@@ -137,26 +136,25 @@ class TodoAIClient:
         if self.api_key:
             headers["X-API-Key"] = self.api_key
             headers["X-Internal-Service-Token"] = self.api_key
-        req = request.Request(  # noqa: S310 - scheme is validated just above
-            self.base_url.rstrip("/") + path,
-            data=raw,
-            headers=headers,
-            method=method,
-        )
+
         try:
-            with request.urlopen(  # noqa: S310 - scheme is validated just above
-                req,
+            response = httpx.request(
+                method,
+                self.base_url.rstrip("/") + path,
+                json=payload,
+                headers=headers,
                 timeout=timeout or _SUBMIT_POLL_REQUEST_TIMEOUT_SECONDS,
-            ) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as err:
-            detail = err.read().decode("utf-8", errors="ignore")
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPStatusError as err:
+            detail = err.response.text
             raise TodoAIClientError(
-                f"mongle-ai HTTP {err.code}: {detail[:200]}"
+                f"mongle-ai HTTP {err.response.status_code}: {detail[:200]}"
             ) from err
-        except error.URLError as err:
+        except httpx.RequestError as err:
             raise TodoAIClientError(f"mongle-ai connection failed: {err}") from err
-        except json.JSONDecodeError as err:
+        except ValueError as err:
             raise TodoAIClientError("mongle-ai returned non-JSON response") from err
 
         if not isinstance(body, dict):
