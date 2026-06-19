@@ -26,7 +26,11 @@ def _resolve_gen_img_url(raw: str) -> str:
     if parsed.scheme in ("http", "https"):
         if not parsed.hostname or not parsed.hostname.endswith(".amazonaws.com"):
             return raw
-        object_key = parsed.path.lstrip("/")
+        path = parsed.path.lstrip("/")
+        # path-style: s3[.region].amazonaws.com/bucket/key → 첫 세그먼트가 버킷명
+        if parsed.hostname.startswith("s3.") or parsed.hostname == "s3.amazonaws.com":
+            _, _, path = path.partition("/")
+        object_key = path
     else:
         object_key = raw
 
@@ -138,8 +142,10 @@ class GenerationJobCreateSerializer(serializers.Serializer):
     source_img_id = serializers.UUIDField(required=False, allow_null=True)
     personality_keywords = serializers.ListField(
         child=serializers.CharField(max_length=50),
-        min_length=1,
+        min_length=0,
         max_length=3,
+        required=False,
+        default=list,
     )
     custom_prompt = serializers.CharField(
         max_length=200, required=False, allow_blank=True, default=""
