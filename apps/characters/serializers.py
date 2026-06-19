@@ -26,7 +26,11 @@ def _resolve_gen_img_url(raw: str) -> str:
     if parsed.scheme in ("http", "https"):
         if not parsed.hostname or not parsed.hostname.endswith(".amazonaws.com"):
             return raw
-        object_key = parsed.path.lstrip("/")
+        path = parsed.path.lstrip("/")
+        # path-style: s3[.region].amazonaws.com/bucket/key → 첫 세그먼트가 버킷명
+        if parsed.hostname.startswith("s3.") or parsed.hostname == "s3.amazonaws.com":
+            _, _, path = path.partition("/")
+        object_key = path
     else:
         object_key = raw
 

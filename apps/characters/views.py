@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from urllib.parse import urlparse
 import uuid
 
 from django.db.models import Count, Q
@@ -24,6 +25,7 @@ from apps.characters.serializers import (
     GenerationJobCreateSerializer,
     GenerationJobSerializer,
     SourceImageCreateSerializer,
+    _resolve_gen_img_url,
 )
 from apps.characters.tasks import process_character_generation_job
 from common.pagination import paginate_queryset
@@ -31,6 +33,27 @@ from common.pagination import paginate_queryset
 MAX_ACTIVE_CHARACTERS = 10
 MAX_DAILY_GEN = 3
 PRESIGNED_URL_EXPIRY_SECONDS = 600
+
+
+def _extract_object_key(url: str) -> str:
+    """S3 URL(presigned 또는 일반)에서 object key 를 추출한다.
+
+    - virtual-hosted: bucket.s3.region.amazonaws.com/key → path 그대로
+    - path-style: s3[.region].amazonaws.com/bucket/key → 첫 세그먼트(버킷명) 제거
+    - 이미 object key(http 가 아닌 값)이면 그대로 반환한다.
+    """
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return url
+    if not parsed.hostname or not parsed.hostname.endswith(".amazonaws.com"):
+        return url
+    path = parsed.path.lstrip("/")
+    # path-style URL 이면 첫 경로 세그먼트가 버킷명 → 제거
+    if parsed.hostname.startswith("s3.") or parsed.hostname == "s3.amazonaws.com":
+        _, _, path = path.partition("/")
+    return path
 
 
 class SourceImageCreateView(APIView):
@@ -243,13 +266,20 @@ class CharacterListView(APIView):
                 {"error": "JOB_NOT_SUCCEEDED"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # gen_img_url 은 만료되는 presigned URL 대신 S3 object key 를 저장한다.
+        # origin_img_url 과 동일한 패턴으로, 조회 시점에 _resolve_gen_img_url 이
+        # 매번 새로 서명해 반환하므로 URL 만료 걱정이 없다.
+        gen_img_object_key = job.gen_img_object_key or _extract_object_key(
+            job.gen_img_url
+        )
+
         character = Character.objects.create(
             user=user,
             generation_job=job,
             character_name=data["name"],
             # 원본 사진의 S3 object_key 를 저장(조회 시점에 presign). 사진 없으면 빈 값.
             origin_img_url=job.source_image.object_key if job.source_image else "",
-            gen_img_url=job.gen_img_url,
+            gen_img_url=gen_img_object_key,
             persona=job.persona,
             visual=job.appearance,
         )
@@ -257,7 +287,7 @@ class CharacterListView(APIView):
         job.status = CharacterGenerationJob.Status.CONSUMED
         job.save(update_fields=["status", "updated_at"])
 
-        # 개인화용으로 확정된 캐릭터 정보를 유저 프로필(JSON)에 기록한다.
+        # 개인화용으로도 object key 를 저장해 personalization 캐시도 만료 없이 재서명
         user.personalization = {
             **user.personalization,
             "character": {
@@ -265,7 +295,7 @@ class CharacterListView(APIView):
                 "name": character.character_name,
                 "persona": character.persona,
                 "visual": character.visual,
-                "gen_img_url": character.gen_img_url,
+                "gen_img_url": gen_img_object_key,
             },
         }
         user.save(update_fields=["personalization"])
@@ -274,7 +304,7 @@ class CharacterListView(APIView):
             {
                 "character_id": character.character_id,
                 "name": character.character_name,
-                "gen_img_url": character.gen_img_url,
+                "gen_img_url": _resolve_gen_img_url(gen_img_object_key),
                 "persona": character.persona,
                 "created_at": character.created_at.isoformat(),
             },
