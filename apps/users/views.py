@@ -17,6 +17,7 @@ from apps.users.refresh_token_service import (
     REFRESH_COOKIE_NAME,
     clear_refresh_cookie,
     issue_refresh_token,
+    revoke_all_user_tokens,
     revoke_refresh_token,
     rotate_refresh_token,
     set_refresh_cookie,
@@ -207,4 +208,18 @@ class ChangePasswordView(APIView):
         request.user.set_password(validated_new)  # type: ignore[union-attr]
         request.user.save(update_fields=["password"])  # type: ignore[union-attr]
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        # 비밀번호 변경 시 전 기기의 자동로그인 토큰을 무효화한다(스펙).
+        # 단, 비밀번호를 바꾼 현재 기기는 재로그인 없이 유지되도록 새 토큰을 재발급한다.
+        current_raw = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        current_row = validate_refresh_token(current_raw) if current_raw else None
+        persistent = current_row.persistent if current_row else False
+        revoke_all_user_tokens(request.user)
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        new_raw, _ = issue_refresh_token(
+            request.user,
+            device_info=request.META.get("HTTP_USER_AGENT", ""),
+            persistent=persistent,
+        )
+        set_refresh_cookie(response, new_raw, persistent=persistent)
+        return response

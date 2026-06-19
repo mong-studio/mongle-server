@@ -13,10 +13,11 @@ from django.utils import timezone
 
 from apps.users.models import RefreshToken, User
 
-# persistent=True (자동로그인): 2주 / persistent=False (세션 로그인): 1일
+# persistent=True (자동로그인): 2주 / persistent=False (세션 로그인): 3시간
+# 세션 로그인은 3시간 비활동 시 만료(슬라이딩) — refresh 시 rotation으로 창이 갱신된다.
 # Safari ITP는 Max-Age 없는 세션 쿠키를 XHR 응답에서 신뢰하지 않으므로 항상 명시한다.
 REFRESH_TOKEN_LIFETIME_PERSISTENT = timedelta(weeks=2)
-REFRESH_TOKEN_LIFETIME_SESSION = timedelta(days=1)
+REFRESH_TOKEN_LIFETIME_SESSION = timedelta(hours=3)
 REFRESH_COOKIE_NAME = "mongle_refresh_token"
 REFRESH_COOKIE_PATH = "/api/v1/auth"
 
@@ -74,6 +75,15 @@ def rotate_refresh_token(row: RefreshToken) -> tuple[str, datetime] | None:
 def revoke_refresh_token(raw_token: str) -> None:
     """해당 토큰 행만 삭제. 없으면 무시."""
     RefreshToken.objects.filter(token_hash=_hash_token(raw_token)).delete()
+
+
+def revoke_all_user_tokens(user: User) -> int:
+    """유저의 모든 refresh token 폐기. (삭제된 행 수 반환)
+
+    비밀번호 변경/재설정 시 전 기기 자동로그인 무효화용.
+    """
+    deleted, _ = RefreshToken.objects.filter(user=user).delete()
+    return deleted
 
 
 def set_refresh_cookie(

@@ -72,7 +72,7 @@ def test_login_remember_me_sets_persistent_cookie(user: User) -> None:
 @pytest.mark.django_db
 def test_login_without_remember_me_sets_short_lived_cookie(user: User) -> None:
     """자동로그인 OFF면
-    1일 max_age 쿠키를 발급한다 (Safari ITP 대응 — 세션 쿠키 대신 단기 영구 쿠키).
+    3시간 max_age 쿠키를 발급한다 (세션 만료 3시간 + Safari ITP 대응 단기 쿠키).
     """
     response = _login(APIClient(), remember_me=False)
     assert response.status_code == 200
@@ -80,8 +80,8 @@ def test_login_without_remember_me_sets_short_lived_cookie(user: User) -> None:
     cookie = response.cookies[REFRESH_COOKIE_NAME]
     assert cookie["httponly"]
     assert cookie["path"] == "/api/v1/auth"
-    # Safari ITP 대응: max_age 없는 세션 쿠키 → 1일 max_age
-    assert cookie["max-age"] == 86400
+    # 세션 만료 3시간: max_age 없는 세션 쿠키 → 3시간(10800초) max_age
+    assert cookie["max-age"] == 10800
     row = RefreshToken.objects.get(user=user)
     assert row.persistent is False
 
