@@ -131,3 +131,36 @@ def test_kakao_login_requires_email() -> None:
         )
     assert res.status_code == 409
     assert res.json()["error"]["message"] == "EMAIL_REQUIRED"
+
+
+@pytest.mark.django_db
+def test_kakao_complete_creates_user_without_password() -> None:
+    token = social_views.save_social_signup_token("new@example.com", "kid-9")
+    payload = {
+        "signup_token": token,
+        "user_name": "새친구",
+        "job": "개발자",
+        "birth": "2000-03-03",
+        "is_aiconsent": True,
+    }
+    res = APIClient().post("/api/v1/auth/social/kakao/complete", payload, format="json")
+    assert res.status_code == 200
+    assert res.json()["status"] == "authenticated"
+    user = User.objects.get(email="new@example.com")
+    assert user.login_type == User.LoginType.KAKAO
+    assert user.has_usable_password() is False
+    assert SocialAccount.objects.filter(provider="kakao", provider_id="kid-9").exists()
+
+
+@pytest.mark.django_db
+def test_kakao_complete_rejects_expired_token() -> None:
+    payload = {
+        "signup_token": "nope",
+        "user_name": "X",
+        "job": "",
+        "birth": "2000-01-01",
+        "is_aiconsent": False,
+    }
+    res = APIClient().post("/api/v1/auth/social/kakao/complete", payload, format="json")
+    assert res.status_code == 400
+    assert res.json()["error"]["message"] == "SOCIAL_SIGNUP_EXPIRED"
