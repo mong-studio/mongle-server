@@ -92,16 +92,17 @@ def test_todo_detail_not_found(auth_client: APIClient) -> None:
     assert response.status_code == 404
 
 
-# tag_id 없이 생성 요청 시 400 반환 (서버가 기본 태그를 부여하지 않음)
+# tag_id 없이 생성 시 태그 없이(null) 그대로 생성한다
 @pytest.mark.django_db
-def test_todo_create_requires_tag(auth_client: APIClient) -> None:
+def test_todo_create_without_tag_is_tagless(auth_client: APIClient) -> None:
     response = auth_client.post(
         "/api/v1/todos/",
         {"content": "태그없음", "todo_date": "2026-06-02"},
         format="json",
     )
-    assert response.status_code == 400
-    assert "tag_id" in response.json()
+    assert response.status_code == 201
+    assert response.json()["tag_id"] is None
+    assert response.json()["tag_content"] is None
 
 
 # tag_id를 명시하면 생성 성공

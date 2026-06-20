@@ -216,8 +216,8 @@ def _serialize_todo(todo: Todo) -> dict[str, object]:
         "status": todo.status,
         "todo_date": todo.todo_date.isoformat(),
         "tag_id": todo.tag_id,
-        "tag_content": todo.tag.content,
-        "tag_color": todo.tag.color,
+        "tag_content": todo.tag.content if todo.tag else None,
+        "tag_color": todo.tag.color if todo.tag else None,
     }
 
 

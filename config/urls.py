@@ -44,6 +44,7 @@ urlpatterns = [
                 path("characters/", include("apps.characters.urls")),
                 path("tags/", include("apps.tags.urls")),
                 path("todos/", include("apps.todos.urls")),
+                path("", include("apps.todos.schedule_urls")),
                 path("reflections/", include("apps.todos.reflection_urls")),
                 path("notifications/", include("apps.users.notification_urls")),
                 path("quests/", include("apps.quests.urls")),
