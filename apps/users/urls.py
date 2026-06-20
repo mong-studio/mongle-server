@@ -1,5 +1,6 @@
 from django.urls import path
 
+from apps.users.social_views import KakaoLoginView
 from apps.users.views import (
     ChangePasswordView,
     LoginView,
@@ -14,4 +15,5 @@ urlpatterns = [
     path("token/refresh", RefreshView.as_view(), name="auth-token-refresh"),
     path("logout", LogoutView.as_view(), name="auth-logout"),
     path("change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
+    path("social/kakao", KakaoLoginView.as_view(), name="auth-social-kakao"),
 ]
