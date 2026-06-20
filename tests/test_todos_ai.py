@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -51,9 +52,9 @@ def test_todo_generate_requires_authentication(client) -> None:
     assert response.status_code == 401
 
 
-# TODO 생성 AI 호출 실패 시 로컬 fallback 후보가 반환되는지 확인
+# TODO 생성 AI 호출 실패 시 가짜 후보 없이 502 가 반환되는지 확인
 @pytest.mark.django_db
-def test_todo_generate_returns_fallback_when_ai_fails(auth_client) -> None:
+def test_todo_generate_returns_502_when_ai_fails(auth_client) -> None:
     with patch("apps.todos.views._todo_ai_client") as factory:
         factory.return_value.generate.side_effect = TodoAIClientError("down")
 
@@ -63,11 +64,8 @@ def test_todo_generate_returns_fallback_when_ai_fails(auth_client) -> None:
             content_type="application/json",
         )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["kind"] == "candidates"
-    assert [item["title"] for item in body["todos"]] == ["운동", "빨래", "Django 공부"]
-    assert [item["tags"][0] for item in body["todos"]] == ["건강", "집안일", "공부"]
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "AI_SERVICE_UNAVAILABLE"
 
 
 # 인증된 사용자가 TODO 채팅 AI 엔드포인트에서 후속 질문을 받을 수 있는지 확인
@@ -189,22 +187,6 @@ def test_todo_planner_confirm_requires_authentication(client) -> None:
     )
 
     assert response.status_code == 401
-
-
-@pytest.mark.django_db
-def test_todo_commit_rejects_missing_internal_token(auth_client) -> None:
-    today = timezone.localdate().isoformat()
-
-    response = auth_client.post(
-        "/api/v1/todos/commit/",
-        data={
-            "todos": [{"title": "헬스 30분", "due_date": today, "tags": ["건강"]}],
-            "calendar_events": [],
-        },
-        content_type="application/json",
-    )
-
-    assert response.status_code == 403
 
 
 @pytest.mark.django_db
@@ -338,11 +320,9 @@ def test_todo_quest_preview_returns_character_quest(auth_client, character) -> N
     }
 
 
-# 퀘스트 미리보기 AI 호출 실패 시 기본 퀘스트 문구로 fallback 되는지 확인
+# 퀘스트 미리보기 AI 호출 실패 시 가짜 퀘스트 없이 빈 결과로 degrade 되는지 확인
 @pytest.mark.django_db
-def test_todo_quest_preview_returns_fallback_when_ai_fails(
-    auth_client, character
-) -> None:
+def test_todo_quest_preview_returns_empty_when_ai_fails(auth_client, character) -> None:
     with patch("apps.todos.views._todo_ai_client") as factory:
         factory.return_value.generate_quests.side_effect = TodoAIClientError("down")
 
@@ -354,17 +334,13 @@ def test_todo_quest_preview_returns_fallback_when_ai_fails(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["quest_distribution_triggered"] is True
-    assert body["todos"][0]["quest"]["character_id"] == str(character.character_id)
-    assert body["todos"][0]["quest"]["character_name"] == character.character_name
-    assert body["todos"][0]["quest"]["content"] == (
-        f"{character.character_name}가 몽글 구름에 리본 달아주기"
-    )
+    assert body["quest_distribution_triggered"] is False
+    assert body["todos"][0]["quest"] is None
 
 
-# 퀘스트 AI가 실패해도 TODO 저장은 성공하고 기본 퀘스트가 생성되는지 확인
+# 퀘스트 AI가 실패해도 TODO 저장은 성공하되, 가짜 퀘스트 없이 퀘스트만 생략되는지 확인
 @pytest.mark.django_db
-def test_todo_confirm_saves_todo_when_quest_ai_fails(
+def test_todo_confirm_saves_todo_without_quest_when_quest_ai_fails(
     auth_client, character, tag
 ) -> None:
     today = timezone.localdate().isoformat()
@@ -388,15 +364,9 @@ def test_todo_confirm_saves_todo_when_quest_ai_fails(
 
     assert response.status_code == 201
     assert Todo.objects.filter(content="물 마시기").exists()
-    assert Quest.objects.count() == 1
-    assert response.json()["quest_distribution_triggered"] is True
-    assert (
-        response.json()["todos"][0]["quest"]["character_name"]
-        == character.character_name
-    )
-    assert response.json()["todos"][0]["quest"]["content"] == (
-        f"{character.character_name}가 몽글 구름에 리본 달아주기"
-    )
+    assert Quest.objects.count() == 0
+    assert response.json()["quest_distribution_triggered"] is False
+    assert response.json()["todos"][0]["quest"] is None
 
 
 # 확정 저장 요청에서 tag_id 대신 태그 이름 배열을 받아 태그를 연결하는지 확인
@@ -493,3 +463,54 @@ def test_todo_ai_client_request_maps_http_status_errors() -> None:
         client = TodoAIClient(base_url="https://ai.test", api_key="token")
         with pytest.raises(TodoAIClientError, match="mongle-ai HTTP 403"):
             client._request("POST", "/v1/probe", payload={})
+
+
+# 날짜가 바뀌어 todo_date 가 오늘이 된(퀘스트 없는) TODO 에 sync 가 기존 배정 로직으로 퀘스트를 채우는지 확인
+@pytest.mark.django_db
+def test_sync_quests_assigns_quest_to_todays_questless_todo(
+    auth_client, user, character, tag
+) -> None:
+    today = timezone.localdate()
+    todo = Todo.objects.create(user=user, tag=tag, content="토익 공부", todo_date=today)
+
+    def _fake_generate_quests(*, todos, characters, remaining_daily_quota):
+        return {
+            "generated": [
+                {
+                    "todo_id": todos[0]["todo_id"],
+                    "character_id": characters[0]["character_id"],
+                    "quest_text": "단어 30개 외우기",
+                }
+            ],
+            "skipped": [],
+        }
+
+    with patch("apps.todos.views._todo_ai_client") as factory:
+        factory.return_value.generate_quests.side_effect = _fake_generate_quests
+        response = auth_client.post(
+            "/api/v1/todos/sync-quests/", data={}, content_type="application/json"
+        )
+
+    assert response.status_code == 200
+    assert Quest.objects.filter(todo=todo).count() == 1
+    body = response.json()
+    assert body["quest_distribution_triggered"] is True
+    assert body["todos"][0]["quest"]["content"] == "단어 30개 외우기"
+
+
+# 아직 미래 날짜인 TODO 는 sync 대상이 아니며(당일만 부여) AI 도 호출하지 않는지 확인
+@pytest.mark.django_db
+def test_sync_quests_ignores_future_dated_todo(
+    auth_client, user, character, tag
+) -> None:
+    tomorrow = timezone.localdate() + timedelta(days=1)
+    Todo.objects.create(user=user, tag=tag, content="미래 할 일", todo_date=tomorrow)
+
+    with patch("apps.todos.views._todo_ai_client") as factory:
+        response = auth_client.post(
+            "/api/v1/todos/sync-quests/", data={}, content_type="application/json"
+        )
+
+    assert response.status_code == 200
+    assert Quest.objects.count() == 0
+    factory.return_value.generate_quests.assert_not_called()

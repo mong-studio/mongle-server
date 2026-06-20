@@ -34,19 +34,20 @@ def with_prefix(key: str) -> str:
 
 
 def get_s3_client() -> Any:
-    # 가상호스팅(virtual) 주소 + SigV4 로 리전 엔드포인트
-    # (bucket.s3.<region>.amazonaws.com)를 직접 서명한다.
-    # 기본값(s3.amazonaws.com 글로벌)으로 서명하면 S3 가 리전 호스트로 301
-    # 리다이렉트하고, 브라우저는 cross-origin 리다이렉트를 CORS 정책상 차단한다.
+    credentials: dict[str, str] = {}
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        credentials = {
+            "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+        }
     return boto3.client(
         "s3",
         region_name=settings.AWS_S3_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         config=Config(
             signature_version="s3v4",
             s3={"addressing_style": "virtual"},
         ),
+        **credentials,
     )
 
 

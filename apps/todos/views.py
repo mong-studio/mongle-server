@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import calendar as calendar_lib
+from datetime import date
 import logging
-from secrets import compare_digest
 import uuid
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -20,7 +21,7 @@ from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.ai_client import TodoAIClient, TodoAIClientError
 from apps.todos.models import Schedule, Todo
-from apps.todos.serializers import TodoSerializer
+from apps.todos.serializers import ScheduleSerializer, TodoSerializer
 from apps.todos.todo_ai_serializers import (
     SavedScheduleSerializer,
     SavedTodoSerializer,
@@ -34,15 +35,6 @@ from apps.users.models import User
 from apps.users.notification_service import create_reflection_notification
 
 logger = logging.getLogger(__name__)
-
-
-class InternalServiceTokenPermission(BasePermission):
-    message = "유효한 내부 서비스 토큰이 필요합니다."
-
-    def has_permission(self, request, view) -> bool:
-        expected_token = settings.MONGLE_AI_API_KEY
-        provided_token = request.headers.get("X-Internal-Service-Token", "")
-        return bool(expected_token) and compare_digest(provided_token, expected_token)
 
 
 class TodoListCreateView(generics.ListCreateAPIView):
@@ -62,7 +54,11 @@ class TodoListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # 태그 미지정이면 태그 없이 생성한다(null).
+        serializer.save(
+            user=self.request.user,
+            tag=serializer.validated_data.get("tag"),
+        )
 
 
 class TodoDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -93,13 +89,17 @@ class TodoGenerateAIView(APIView):
                 prompt=serializer.validated_data["prompt"],
                 today=today,
             )
-        except TodoAIClientError:
-            # TODO: AI 서버 연결이 안정화되면 이 테스트용 fallback을 제거하고
-            # 아래 에러 응답을 되살리기.
-            # return Response({"error": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
-            result = _build_fallback_todo_candidates(
-                serializer.validated_data["prompt"],
-                today,
+        except TodoAIClientError as err:
+            # 가짜로 분해하지 않는다. 프롬프트는 오직 실제 LLM(mongle-ai)으로만 간다.
+            logger.warning("todo generate AI 호출 실패: %s", err)
+            return Response(
+                {
+                    "error": {
+                        "code": "AI_SERVICE_UNAVAILABLE",
+                        "message": "AI 서버에 연결할 수 없어요. 다시 시도해주세요.",
+                    }
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(result, status=status.HTTP_200_OK)
 
@@ -123,16 +123,6 @@ class TodoChatAIView(APIView):
         except TodoAIClientError as err:
             return Response({"error": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(result, status=status.HTTP_200_OK)
-
-
-class TodoCommitAIView(APIView):
-    permission_classes = (InternalServiceTokenPermission,)
-
-    def post(self, request) -> Response:
-        serializer = TodoCommitRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = _resolve_user(request)
-        return _save_todo_candidates(user, serializer.validated_data)
 
 
 class TodoPlannerConfirmView(APIView):
@@ -253,6 +243,51 @@ class TodoConfirmView(APIView):
         )
 
 
+class TodoQuestSyncView(APIView):
+    """날짜가 바뀌어 todo_date 가 오늘이 된 TODO 에 뒤늦게 퀘스트를 채운다.
+
+    미래 날짜로 만든 TODO(calendar_events 로 들어온 미래 일정 등)는 생성 시점엔
+    퀘스트가 없다. _assign_quests_to_todos 가 "당일(todo_date == today)" TODO 에만
+    부여하기 때문이다. 그 날이 되면 앱 진입 시 이 엔드포인트를 호출해, 오늘자이면서
+    아직 퀘스트가 없는 진행 중 TODO 를 모아 기존 배정 로직에 그대로 넘긴다.
+    하루 5개 한도/활성 캐릭터/AI 실패 graceful degrade 는 그 함수가 이미 보장하므로
+    여기서 새 규칙을 만들지 않는다.
+    """
+
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request) -> Response:
+        user = request.user
+        today = timezone.localdate()
+        pending = list(
+            Todo.objects.filter(
+                user=user,
+                todo_date=today,
+                status=Todo.Status.IN_PROGRESS,
+                quests__isnull=True,
+            )
+            .select_related("tag")
+            .order_by("created_at")
+        )
+        quests_by_todo, quest_triggered = _assign_quests_to_todos(user, pending)
+
+        todo_data = SavedTodoSerializer(
+            [
+                _serialize_saved_todo(todo, quests_by_todo)
+                for todo in pending
+                if str(todo.todo_id) in quests_by_todo
+            ],
+            many=True,
+        ).data
+        return Response(
+            {
+                "todos": todo_data,
+                "quest_distribution_triggered": quest_triggered,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class TodoQuestPreviewView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -287,14 +322,10 @@ class TodoQuestPreviewView(APIView):
                     ],
                     remaining_daily_quota=remaining_daily_quota,
                 )
-            except TodoAIClientError:
-                # TODO: AI 서버 연결이 안정화되면 이 preview fallback을 제거하고
-                # generated = {"generated": []} 로 되돌리기.
-                generated = _build_fallback_preview_quests(
-                    preview_todos,
-                    active_characters,
-                    remaining_daily_quota,
-                )
+            except TodoAIClientError as err:
+                # AI 실패 시 가짜 퀘스트를 만들지 않고 빈 결과로 graceful degrade.
+                logger.warning("quest preview AI 호출 실패: %s", err)
+                generated = {"generated": []}
 
         characters_by_id = {
             str(character.character_id): character for character in active_characters
@@ -370,29 +401,95 @@ class TodoCompleteView(APIView):
         return Response({"todo_id": str(todo.todo_id), "status": todo.status})
 
 
+class TodoFailView(APIView):
+    """사용자가 진행 중 TODO를 직접 실패(FAILED) 처리한다. 삭제하지 않음."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def patch(self, request, todo_id) -> Response:
+        todo = generics.get_object_or_404(Todo, todo_id=todo_id, user=request.user)
+        if todo.status != Todo.Status.IN_PROGRESS:
+            return Response(
+                {"error": "포기할 수 없는 상태입니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        todo.status = Todo.Status.FAILED
+        todo.save(update_fields=["status", "updated_at"])
+        return Response({"todo_id": str(todo.todo_id), "status": todo.status})
+
+
+class ScheduleCreateView(generics.CreateAPIView):
+    serializer_class = ScheduleSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def perform_create(self, serializer):
+        tag = serializer.validated_data.get("tag") or _ensure_tag([], self.request.user)
+        serializer.save(user=self.request.user, tag=tag)
+
+
+class ScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ScheduleSerializer
+    permission_classes = (IsAuthenticated,)
+    lookup_field = "schedule_id"
+
+    def get_queryset(self):
+        return Schedule.objects.filter(user=self.request.user).select_related("tag")
+
+
+class CalendarMonthView(APIView):
+    """캘린더 월 단위 조회: 해당 월에 걸치는 TODO와 일정을 함께 반환한다."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request) -> Response:
+        try:
+            year = int(request.query_params["year"])
+            month = int(request.query_params["month"])
+            first_day = date(year, month, 1)
+            last_day = date(year, month, calendar_lib.monthrange(year, month)[1])
+        except (KeyError, ValueError):
+            return Response(
+                {"error": "year, month 쿼리 파라미터가 올바르지 않습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        todos = (
+            Todo.objects.filter(
+                user=request.user,
+                todo_date__range=(first_day, last_day),
+            )
+            .select_related("tag")
+            .order_by("todo_date")
+        )
+        # 시작일이 월말 이전이고, 종료일(없으면 시작일)이 월초 이후면 해당 월에 걸친다.
+        schedules = (
+            Schedule.objects.filter(
+                Q(user=request.user)
+                & Q(start_date__lte=last_day)
+                & (
+                    Q(end_date__gte=first_day)
+                    | (Q(end_date__isnull=True) & Q(start_date__gte=first_day))
+                )
+            )
+            .select_related("tag")
+            .order_by("start_date")
+        )
+
+        return Response(
+            {
+                "todos": TodoSerializer(todos, many=True).data,
+                "schedules": ScheduleSerializer(schedules, many=True).data,
+            }
+        )
+
+
 def _todo_ai_client() -> TodoAIClient:
     return TodoAIClient(
         base_url=settings.MONGLE_AI_API_BASE,
         api_key=settings.MONGLE_AI_API_KEY,
         timeout_seconds=settings.MONGLE_AI_TIMEOUT_SECONDS,
     )
-
-
-def _resolve_user(request) -> User:
-    user = getattr(request, "user", None)
-    if user is not None and getattr(user, "is_authenticated", False):
-        return user
-
-    demo_user, _ = User.objects.get_or_create(
-        email="demo@mongle.local",
-        defaults={
-            "user_name": "체험자",
-            "job": "Demo",
-            "birth": "2000-01-01",
-            "is_aiconsent": False,
-        },
-    )
-    return demo_user
 
 
 def _assign_quests_to_todos(
@@ -424,12 +521,10 @@ def _assign_quests_to_todos(
             ],
             remaining_daily_quota=remaining_daily_quota,
         )
-    except TodoAIClientError:
-        return _build_fallback_quests_for_todos(
-            todays_todos,
-            active_characters,
-            remaining_daily_quota,
-        )
+    except TodoAIClientError as err:
+        # AI 실패 시 가짜 퀘스트를 만들지 않는다. TODO 저장은 유지하고 퀘스트만 생략.
+        logger.warning("quest 배정 AI 호출 실패: %s", err)
+        return {}, False
 
     todos_by_id = {str(todo.todo_id): todo for todo in todays_todos}
     characters_by_id = {
@@ -454,114 +549,6 @@ def _assign_quests_to_todos(
         quests_by_todo[todo_id] = quest
 
     return quests_by_todo, bool(quests_by_todo)
-
-
-def _build_fallback_todo_candidates(prompt: str, today: str) -> dict[str, object]:
-    separators = ("그리고", "하고", "및", ",", ".", "\n", "·")
-    parts = [prompt]
-    for separator in separators:
-        next_parts: list[str] = []
-        for part in parts:
-            next_parts.extend(part.split(separator))
-        parts = next_parts
-
-    titles = [part.strip()[:20] for part in parts if len(part.strip()) > 1]
-    if not titles:
-        titles = [prompt.strip()[:20] or "오늘 할 일"]
-
-    return {
-        "kind": "candidates",
-        "thread_id": str(uuid.uuid4()),
-        "todos": [
-            {
-                "title": title,
-                "due_date": today,
-                "tags": [_guess_fallback_todo_tag(title)],
-            }
-            for title in titles[:6]
-        ],
-        "calendar_events": [],
-        "summary_text": "AI 서버 연결 전이라 임시로 TODO를 나눴어요.",
-    }
-
-
-def _guess_fallback_todo_tag(title: str) -> str:
-    if any(keyword in title for keyword in ("운동", "헬스", "병원", "약", "스트레칭")):
-        return "건강"
-    if any(keyword in title for keyword in ("청소", "빨래", "설거지", "정리")):
-        return "집안일"
-    if any(keyword in title for keyword in ("공부", "강의", "책", "마이그레이션")):
-        return "공부"
-    if any(keyword in title for keyword in ("업무", "회의", "기획서", "작업")):
-        return "작업"
-    return "일상"
-
-
-def _build_fallback_preview_quests(
-    preview_todos: list[dict[str, object]],
-    characters: list[Character],
-    remaining_daily_quota: int,
-) -> dict[str, list[dict[str, object]]]:
-    # TODO: AI 서버 연결이 안정화되면 이 preview fallback 생성 로직을 제거하기.
-    generated: list[dict[str, object]] = []
-    if remaining_daily_quota <= 0:
-        return {"generated": generated}
-
-    for index, item in enumerate(preview_todos[:remaining_daily_quota]):
-        character = characters[index % len(characters)]
-        generated.append(
-            {
-                "todo_id": item["todo_id"],
-                "character_id": str(character.character_id),
-                "quest_text": _fallback_quest_content(character, index),
-            }
-        )
-    return {"generated": generated}
-
-
-def _build_fallback_quests_for_todos(
-    todos: list[Todo], characters: list[Character], remaining_daily_quota: int
-) -> tuple[dict[str, Quest], bool]:
-    # TODO: AI 서버 연결이 안정화되면 이 fallback 생성 로직을 제거하고
-    # TodoAIClientError 발생 시 기존처럼 ({}, False)를 반환하도록 되돌리기.
-    quests_by_todo: dict[str, Quest] = {}
-    if remaining_daily_quota <= 0:
-        return quests_by_todo, False
-
-    for index, todo in enumerate(todos[:remaining_daily_quota]):
-        character = characters[index % len(characters)]
-        quest = Quest.objects.create(
-            todo=todo,
-            character=character,
-            content=_fallback_quest_content(character, index),
-        )
-        quests_by_todo[str(todo.todo_id)] = quest
-
-    return quests_by_todo, bool(quests_by_todo)
-
-
-def _fallback_quest_content(character: Character, index: int) -> str:
-    persona = (character.persona or "").lower()
-    if any(keyword in persona for keyword in ("활발", "밝", "장난", "에너지")):
-        return f"{character.character_name}가 햇살 길에서 폴짝 산책하기"
-    if any(keyword in persona for keyword in ("차분", "조용", "느긋", "사색")):
-        return f"{character.character_name}가 작은 찻잔 옆에서 구름 일기 쓰기"
-    if any(keyword in persona for keyword in ("꼼꼼", "성실", "정리", "계획")):
-        return f"{character.character_name}가 반짝 단추를 색깔별로 정리하기"
-    if any(keyword in persona for keyword in ("상냥", "다정", "친절", "따뜻")):
-        return f"{character.character_name}가 마을 꽃들에게 안부 인사하기"
-    if any(keyword in persona for keyword in ("호기심", "탐험", "궁금", "모험")):
-        return f"{character.character_name}가 숨은 별조각 세 개 찾아보기"
-
-    fallback_activities = [
-        "몽글 구름에 리본 달아주기",
-        "작은 꽃밭에 반짝 물방울 뿌리기",
-        "포근한 방석 위에서 낮잠 자리 고르기",
-        "마을 우체통에 응원 편지 넣기",
-        "조약돌에게 귀여운 이름 붙여주기",
-    ]
-    activity = fallback_activities[index % len(fallback_activities)]
-    return f"{character.character_name}가 {activity}"
 
 
 def _serialize_preview_quest(

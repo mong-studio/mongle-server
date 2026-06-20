@@ -5,6 +5,15 @@ from typing import Any
 from rest_framework import serializers
 
 
+class TodoGenerateRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    prompt = serializers.CharField(max_length=200)
+
+
+class TodoChatRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    message = serializers.CharField(max_length=600)
+    thread_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+
 class TaskCandidateSerializer(serializers.Serializer[dict[str, Any]]):
     title = serializers.CharField(max_length=20)
     due_date = serializers.DateField()
@@ -13,15 +22,6 @@ class TaskCandidateSerializer(serializers.Serializer[dict[str, Any]]):
         allow_empty=True,
         required=False,
     )
-
-
-class TodoGenerateRequestSerializer(serializers.Serializer[dict[str, Any]]):
-    prompt = serializers.CharField(max_length=200)
-
-
-class TodoChatRequestSerializer(serializers.Serializer[dict[str, Any]]):
-    message = serializers.CharField(max_length=600)
-    thread_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
 
 class TodoCommitRequestSerializer(serializers.Serializer[dict[str, Any]]):

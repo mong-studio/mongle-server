@@ -1,17 +1,22 @@
 from rest_framework import serializers
 
 from apps.tags.models import Tag
-from apps.todos.models import Todo
+from apps.todos.models import Schedule, Todo
 
 
 class TodoSerializer(serializers.ModelSerializer):
     tag_id = serializers.PrimaryKeyRelatedField(
         source="tag",
         queryset=Tag.objects.all(),
-        required=True,
+        required=False,
+        allow_null=True,
     )
-    tag_color = serializers.CharField(source="tag.color", read_only=True)
-    tag_content = serializers.CharField(source="tag.content", read_only=True)
+    tag_color = serializers.CharField(
+        source="tag.color", read_only=True, allow_null=True
+    )
+    tag_content = serializers.CharField(
+        source="tag.content", read_only=True, allow_null=True
+    )
     quest = serializers.SerializerMethodField()
 
     class Meta:
@@ -46,3 +51,31 @@ class TodoSerializer(serializers.ModelSerializer):
             "character_id": quest.character_id,
             "character_name": quest.character.character_name,
         }
+
+
+class ScheduleSerializer(serializers.ModelSerializer):
+    tag_id = serializers.PrimaryKeyRelatedField(
+        source="tag",
+        queryset=Tag.objects.all(),
+        required=False,
+    )
+    tag_color = serializers.CharField(source="tag.color", read_only=True)
+    tag_content = serializers.CharField(source="tag.content", read_only=True)
+
+    class Meta:
+        model = Schedule
+        fields = (
+            "schedule_id",
+            "title",
+            "description",
+            "start_date",
+            "end_date",
+            "tag_id",
+            "tag_color",
+            "tag_content",
+        )
+        read_only_fields = (
+            "schedule_id",
+            "tag_color",
+            "tag_content",
+        )

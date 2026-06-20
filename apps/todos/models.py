@@ -20,6 +20,8 @@ class Todo(models.Model):
         "tags.Tag",
         on_delete=models.PROTECT,
         related_name="todos",
+        null=True,
+        blank=True,
     )
     content = models.CharField(max_length=20)
     status = models.CharField(

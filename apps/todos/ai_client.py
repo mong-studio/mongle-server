@@ -132,6 +132,9 @@ class TodoAIClient:
         headers = {
             "Content-Type": "application/json",
             "X-Request-Id": str(uuid4()),
+            # RunPod Pod 프록시(*.proxy.runpod.net)는 Cloudflare 뒤라 기본
+            # urllib UA(Python-urllib/*)를 1010으로 막는다. 서비스 UA로 통과.
+            "User-Agent": "mongle-server/1.0",
         }
         if self.api_key:
             headers["X-API-Key"] = self.api_key
