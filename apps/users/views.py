@@ -47,6 +47,35 @@ def _login_user_payload(user: User) -> dict[str, object]:
     }
 
 
+def build_login_response(
+    user: User,
+    request: Request,
+    persistent: bool,
+    extra: dict[str, object] | None = None,
+) -> Response:
+    """access_token 본문 + refresh 쿠키가 세팅된 로그인 응답을 만든다.
+
+    이메일 로그인·소셜 로그인이 공유한다. extra는 본문에 병합된다.
+    """
+    access_token = AccessToken.for_user(user)
+    body: dict[str, object] = {
+        "access_token": str(access_token),
+        "token_type": "Bearer",
+        "expires_in_seconds": ACCESS_TOKEN_LIFETIME_SECONDS,
+        "users": _login_user_payload(user),
+    }
+    if extra:
+        body.update(extra)
+    response = Response(body)
+    raw_token, _ = issue_refresh_token(
+        user,
+        device_info=request.META.get("HTTP_USER_AGENT", ""),
+        persistent=persistent,
+    )
+    set_refresh_cookie(response, raw_token, persistent=persistent)
+    return response
+
+
 # 로그인
 class LoginView(APIView):
     permission_classes = (AllowAny,)
@@ -75,26 +104,10 @@ class LoginView(APIView):
         if user is None:
             return error_response(401, "INVALID_CREDENTIALS")
 
-        access_token = AccessToken.for_user(user)
-        response = Response(
-            {
-                "access_token": str(access_token),
-                "token_type": "Bearer",
-                "expires_in_seconds": ACCESS_TOKEN_LIFETIME_SECONDS,
-                "users": _login_user_payload(user),
-            }
-        )
-
         # 자동로그인(remember_me)이면 영구 쿠키, 아니면 세션 쿠키로 항상 발급한다.
         # 세션 쿠키도 새로고침에는 유지되므로 로그인이 즉시 풀리지 않음
         remember_me = bool(payload["remember_me"])
-        user_agent = request.META.get("HTTP_USER_AGENT", "")
-        raw_token, _ = issue_refresh_token(
-            user, device_info=user_agent, persistent=remember_me
-        )
-        set_refresh_cookie(response, raw_token, persistent=remember_me)
-
-        return response
+        return build_login_response(user, request, persistent=remember_me)
 
     @staticmethod
     def _validate_payload(request: Request) -> dict[str, object]:
