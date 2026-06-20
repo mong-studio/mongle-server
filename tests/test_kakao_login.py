@@ -164,3 +164,26 @@ def test_kakao_complete_rejects_expired_token() -> None:
     res = APIClient().post("/api/v1/auth/social/kakao/complete", payload, format="json")
     assert res.status_code == 400
     assert res.json()["error"]["message"] == "SOCIAL_SIGNUP_EXPIRED"
+
+
+@pytest.mark.django_db
+def test_password_reset_blocked_for_kakao_user() -> None:
+    user = User.objects.create_user(
+        email="ka@example.com",
+        user_name="카유저",
+        birth=date(1992, 2, 2),
+        login_type=User.LoginType.KAKAO,
+    )
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    res = APIClient().post(
+        "/api/v1/auth/password-reset",
+        {
+            "email": "ka@example.com",
+            "new_password": "Newpass1!",
+            "verification_token": "x",
+        },
+        format="json",
+    )
+    assert res.status_code == 403
+    assert res.json()["error"]["message"] == "SOCIAL_ACCOUNT_NO_PASSWORD"

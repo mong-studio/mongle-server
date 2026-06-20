@@ -197,6 +197,9 @@ class ChangePasswordView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request: Request) -> HttpResponseBase:
+        if request.user.login_type == User.LoginType.KAKAO:  # type: ignore[union-attr]
+            return error_response(403, "SOCIAL_ACCOUNT_NO_PASSWORD")
+
         if not isinstance(request.data, dict):
             return error_response(400, "VALIDATION_ERROR")
 
