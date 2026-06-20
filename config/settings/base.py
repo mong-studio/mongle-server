@@ -33,7 +33,7 @@ env = environ.Env(
     ),
     MONGLE_AI_API_BASE=(str, "http://127.0.0.1:8010"),
     MONGLE_AI_API_KEY=(str, ""),
-    MONGLE_AI_TIMEOUT_SECONDS=(float, 15.0),
+    MONGLE_AI_TIMEOUT_SECONDS=(float, 150.0),
     IMAGE_PROVIDER=(str, "local"),
     RUNPOD_API_KEY=(str, ""),
     RUNPOD_IMAGE_ENDPOINT_ID=(str, ""),
