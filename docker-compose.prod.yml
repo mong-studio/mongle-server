@@ -11,6 +11,16 @@ services:
       redis:
         condition: service_healthy
 
+  worker:
+    image: mongstudio/mongle-server:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "worker", "--loglevel=info"]
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
