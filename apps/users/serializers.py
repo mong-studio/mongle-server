@@ -13,6 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
             "job",
             "birth",
             "token_balance",
+            "login_type",
             "created_at",
         )
         read_only_fields = fields

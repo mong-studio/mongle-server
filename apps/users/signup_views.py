@@ -280,6 +280,12 @@ def password_reset(request: HttpRequest) -> JsonResponse:
     except ValidationError as exc:
         return validation_error_response(exc)
 
+    kakao_user = User.objects.filter(
+        email=email, login_type=User.LoginType.KAKAO
+    ).first()
+    if kakao_user is not None:
+        return error_response(403, "SOCIAL_ACCOUNT_NO_PASSWORD")
+
     raw_token = body.get("verification_token")
     verification_token = raw_token if isinstance(raw_token, str) and raw_token else ""
     token_data = _get_verified_token(verification_token) if verification_token else None
