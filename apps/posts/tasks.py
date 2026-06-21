@@ -73,14 +73,16 @@ def generate_feed_post(self, quest_id: str) -> None:
     )
 
 
-@shared_task
-def generate_character_reply(comment_id: str) -> None:
+@shared_task(bind=True, max_retries=2)
+def generate_character_reply(self, comment_id: str) -> None:
     """
     [이벤트] 댓글 작성 10분 후 실행
-    댓글이 달린 게시물의 캐릭터가 자동으로 답글을 생성한다.
+    댓글이 달린 게시물의 캐릭터가 mongle-ai 답글 생성 파이프라인으로 답글을 생성한다.
     댓글 작성 시 views.py에서 countdown=600(10분)으로 예약 호출된다.
-    현재는 고정 문자열로 생성하며, 추후 AI 생성으로 교체 예정
+    입력: 캐릭터 페르소나 + 피드 캡션 + 방문자 댓글 → 50자 답글.
     """
+    from django.conf import settings
+
     from apps.posts.models import Comment, Reply
 
     try:
@@ -95,8 +97,35 @@ def generate_character_reply(comment_id: str) -> None:
     if Reply.objects.filter(comment=comment, character=character).exists():
         return
 
-    # TODO: AI 생성으로 교체 예정
-    content = f"{character.character_name}이(가) 댓글을 확인했어요!"
+    payload = {
+        "character": {
+            "character_id": str(character.character_id),
+            "name": character.character_name,
+            "personality": character.persona,
+            "speech_style": "",
+        },
+        "post_caption": comment.post.content,
+        "user_comment": comment.content,
+    }
+
+    try:
+        response = httpx.post(
+            f"{settings.AI_SERVICE_URL}/v1/reply/generate",
+            json=payload,
+            headers={"X-API-Key": settings.AI_SERVICE_TOKEN},
+            timeout=_AI_TIMEOUT,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        logger.exception("reply generation failed: comment_id=%s", comment_id)
+        raise self.retry(exc=exc, countdown=30) from exc
+
+    content = (response.json().get("result") or {}).get("reply_text", "")
+    if not content:
+        logger.error(
+            "reply generation returned empty result: comment_id=%s", comment_id
+        )
+        return
 
     Reply.objects.create(
         comment=comment,
