@@ -111,6 +111,63 @@ def test_reflection_date_detail_returns_own_reflection(
 
 
 @pytest.mark.django_db
+def test_reflection_list_returns_past_reflections_in_date_order(
+    auth_client: APIClient,
+    user: User,
+) -> None:
+    # 기준일 이전의 본인 회고만 오래된 날짜순으로 반환하는지 검증한다.
+    today = timezone.localdate()
+    other_user = User.objects.create_user(
+        email="reflection-list-other@test.com",
+        password="password123",
+        user_name="다른유저",
+        birth="2000-01-01",
+    )
+    for reflection_date in (
+        today - timedelta(days=1),
+        today - timedelta(days=3),
+        today,
+    ):
+        Reflection.objects.create(
+            user=user,
+            reflection_date=reflection_date,
+            good_points=f"{reflection_date} 잘한 점",
+            improvement_points=f"{reflection_date} 아쉬운 점",
+        )
+    Reflection.objects.create(
+        user=other_user,
+        reflection_date=today - timedelta(days=2),
+        good_points="다른 사용자 잘한 점",
+        improvement_points="다른 사용자 아쉬운 점",
+    )
+
+    response = auth_client.get(
+        "/api/v1/reflections/",
+        {"before": today.isoformat()},
+    )
+
+    assert response.status_code == 200
+    assert [item["reflection_date"] for item in response.json()] == [
+        (today - timedelta(days=3)).isoformat(),
+        (today - timedelta(days=1)).isoformat(),
+    ]
+
+
+@pytest.mark.django_db
+def test_reflection_list_returns_empty_array_without_404(
+    auth_client: APIClient,
+) -> None:
+    # 이전 회고가 없을 때 404 대신 빈 목록을 반환하는지 검증한다.
+    response = auth_client.get(
+        "/api/v1/reflections/",
+        {"before": timezone.localdate().isoformat()},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.django_db
 def test_reflection_context_splits_completed_and_incomplete_todos(
     auth_client: APIClient,
     user: User,
@@ -191,6 +248,85 @@ def test_reflection_update_charges_tokens(
 
 
 @pytest.mark.django_db
+def test_today_reflection_update_rewards_newly_eligible_field_once(
+    auth_client: APIClient,
+    user: User,
+) -> None:
+    # 오늘 회고를 수정해 보상 조건을 새로 충족하면 해당 항목 보상을 한 번만 지급한다.
+    user.token_balance = 50
+    user.save(update_fields=["token_balance"])
+    reflection = Reflection.objects.create(
+        user=user,
+        reflection_date=timezone.localdate(),
+        good_points="짧은 잘한 점",
+        improvement_points="짧은 아쉬운 점",
+    )
+    url = f"/api/v1/reflections/{reflection.reflection_id}/"
+    payload = {
+        "good_points": "a" * 30,
+        "improvement_points": "짧은 아쉬운 점",
+    }
+
+    first_response = auth_client.patch(url, payload, format="json")
+    second_response = auth_client.patch(url, payload, format="json")
+
+    assert first_response.status_code == 200
+    assert first_response.json()["new_reward"] == 2
+    assert first_response.json()["token_delta"] == -13
+    assert second_response.status_code == 200
+    assert second_response.json()["new_reward"] == 0
+    assert second_response.json()["token_delta"] == -15
+    reflection.refresh_from_db()
+    user.refresh_from_db()
+    assert reflection.good_token_rewarded is True
+    assert reflection.improvement_token_rewarded is False
+    assert user.token_balance == 22
+    assert (
+        TokenTransaction.objects.filter(
+            user=user,
+            amount=2,
+            type="reflection_reward",
+            reference_id=str(reflection.reflection_id),
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_past_reflection_update_does_not_reward_newly_eligible_fields(
+    auth_client: APIClient,
+    user: User,
+) -> None:
+    # 과거 회고 수정은 새로 글자 수 조건을 충족해도 추가 보상을 지급하지 않는다.
+    user.token_balance = 20
+    user.save(update_fields=["token_balance"])
+    reflection = Reflection.objects.create(
+        user=user,
+        reflection_date=timezone.localdate() - timedelta(days=1),
+        good_points="짧은 잘한 점",
+        improvement_points="짧은 아쉬운 점",
+    )
+
+    response = auth_client.patch(
+        f"/api/v1/reflections/{reflection.reflection_id}/",
+        {
+            "good_points": "a" * 30,
+            "improvement_points": "b" * 30,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["new_reward"] == 0
+    assert response.json()["token_delta"] == -15
+    reflection.refresh_from_db()
+    user.refresh_from_db()
+    assert reflection.good_token_rewarded is False
+    assert reflection.improvement_token_rewarded is False
+    assert user.token_balance == 5
+
+
+@pytest.mark.django_db
 def test_reflection_update_rejects_insufficient_tokens(
     auth_client: APIClient,
     user: User,
@@ -217,12 +353,52 @@ def test_reflection_update_rejects_insufficient_tokens(
 
 
 @pytest.mark.django_db
+def test_todo_reward_reaching_fifteen_allows_reflection_update(
+    auth_client: APIClient,
+    user: User,
+    tag: Tag,
+) -> None:
+    # TODO 보상으로 잔액이 수정 비용에 도달하면 이어서 회고를 수정할 수 있어야 한다.
+    user.token_balance = 14
+    user.save(update_fields=["token_balance"])
+    today = timezone.localdate()
+    todo = Todo.objects.create(
+        user=user,
+        tag=tag,
+        content="사과 보상 TODO",
+        todo_date=today,
+    )
+    reflection = Reflection.objects.create(
+        user=user,
+        reflection_date=today,
+        good_points="기존 잘한 점",
+        improvement_points="기존 아쉬운 점",
+    )
+
+    complete_response = auth_client.patch(f"/api/v1/todos/{todo.todo_id}/complete/")
+    update_response = auth_client.patch(
+        f"/api/v1/reflections/{reflection.reflection_id}/",
+        {
+            "good_points": "수정한 잘한 점",
+            "improvement_points": "수정한 아쉬운 점",
+        },
+        format="json",
+    )
+
+    assert complete_response.status_code == 200
+    assert complete_response.json()["token_balance"] == 15
+    assert update_response.status_code == 200
+    user.refresh_from_db()
+    assert user.token_balance == 0
+
+
+@pytest.mark.django_db
 def test_todo_complete_creates_reflection_notification_once(
     auth_client: APIClient,
     user: User,
     tag: Tag,
 ) -> None:
-    # 마지막 남은 TODO를 완료했을 때만 당일 회고 알림을 한 번 생성한다.
+    # 마지막 남은 TODO를 완료했을 때 요청 문구의 당일 회고 알림을 한 번만 생성한다.
     todo_date = timezone.localdate()
     first = Todo.objects.create(
         user=user, tag=tag, content="첫 번째", todo_date=todo_date
@@ -241,7 +417,17 @@ def test_todo_complete_creates_reflection_notification_once(
 
     notification = Notification.objects.get()
     assert notification.type == "reflection"
+    assert notification.title == "오늘도 고생 많았어요"
+    assert notification.content == "오늘 하루를 같이 정리 해볼까요?"
     assert notification.data["reflection_date"] == todo_date.isoformat()
+
+    # 알림 생성 뒤 같은 날짜 TODO를 추가해 완료해도 새 알림을 만들지 않는다.
+    added_later = Todo.objects.create(
+        user=user, tag=tag, content="나중에 추가", todo_date=todo_date
+    )
+    third_response = auth_client.patch(f"/api/v1/todos/{added_later.todo_id}/complete/")
+    assert third_response.status_code == 200
+    assert Notification.objects.count() == 1
 
 
 @pytest.mark.django_db

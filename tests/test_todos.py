@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
+from apps.users.models import TokenTransaction
 
 
 # 비로그인 상태에서 TODO 목록 조회 시 401 반환 확인
@@ -129,3 +130,52 @@ def test_todo_complete_marks_linked_quest_completed(
     quest.refresh_from_db()
     assert todo.status == Todo.Status.COMPLETED
     assert quest.status == Quest.Status.COMPLETED
+
+
+@pytest.mark.django_db
+def test_todo_complete_rewards_token_and_returns_server_balance(
+    auth_client: APIClient, todo: Todo
+) -> None:
+    # TODO 완료 보상을 거래 내역에 기록하고 갱신된 서버 잔액을 응답하는지 검증한다.
+    starting_balance = todo.user.token_balance
+
+    response = auth_client.patch(f"/api/v1/todos/{todo.todo_id}/complete/")
+
+    assert response.status_code == 200
+    assert response.json()["reward"] == 1
+    assert response.json()["token_balance"] == starting_balance + 1
+    todo.user.refresh_from_db()
+    assert todo.user.token_balance == starting_balance + 1
+    assert TokenTransaction.objects.filter(
+        user=todo.user,
+        amount=1,
+        type="todo_reward",
+        reference_id=str(todo.todo_id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_todo_complete_respects_daily_reward_limit(
+    auth_client: APIClient, todo: Todo
+) -> None:
+    # 하루 10회 보상을 모두 받은 뒤에는 TODO를 완료해도 잔액을 추가하지 않는다.
+    starting_balance = todo.user.token_balance
+    TokenTransaction.objects.bulk_create(
+        [
+            TokenTransaction(
+                user=todo.user,
+                amount=1,
+                type="todo_reward",
+                reference_id=f"daily-reward-{index}",
+            )
+            for index in range(10)
+        ]
+    )
+
+    response = auth_client.patch(f"/api/v1/todos/{todo.todo_id}/complete/")
+
+    assert response.status_code == 200
+    assert response.json()["reward"] == 0
+    assert response.json()["token_balance"] == starting_balance
+    todo.user.refresh_from_db()
+    assert todo.user.token_balance == starting_balance

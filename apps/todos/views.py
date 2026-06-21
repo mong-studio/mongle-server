@@ -31,10 +31,13 @@ from apps.todos.todo_ai_serializers import (
     TodoGenerateRequestSerializer,
     TodoQuestPreviewRequestSerializer,
 )
-from apps.users.models import User
+from apps.users.models import TokenTransaction, User
 from apps.users.notification_service import create_reflection_notification
 
 logger = logging.getLogger(__name__)
+
+TODO_REWARD_AMOUNT = 1
+TODO_DAILY_REWARD_LIMIT = 10
 
 
 class TodoListCreateView(generics.ListCreateAPIView):
@@ -357,48 +360,77 @@ class TodoCompleteView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def patch(self, request, todo_id) -> Response:
-        todo = generics.get_object_or_404(Todo, todo_id=todo_id, user=request.user)
-        if todo.status != Todo.Status.IN_PROGRESS:
-            return Response(
-                {"error": "완료할 수 없는 상태입니다."},
-                status=status.HTTP_409_CONFLICT,
+        with transaction.atomic():
+            todo = generics.get_object_or_404(
+                Todo.objects.select_for_update(),
+                todo_id=todo_id,
+                user=request.user,
             )
+            if todo.status != Todo.Status.IN_PROGRESS:
+                return Response(
+                    {"error": "완료할 수 없는 상태입니다."},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-        todo.status = Todo.Status.COMPLETED
-        todo.save(update_fields=["status", "updated_at"])
+            user = User.objects.select_for_update().get(pk=request.user.pk)
+            todo.status = Todo.Status.COMPLETED
+            todo.save(update_fields=["status", "updated_at"])
 
-        quest_ids = list(
-            todo.quests.filter(status=Quest.Status.IN_PROGRESS).values_list(
-                "quest_id", flat=True
+            quest_ids = list(
+                todo.quests.filter(status=Quest.Status.IN_PROGRESS).values_list(
+                    "quest_id", flat=True
+                )
             )
+            todo.quests.update(status=Quest.Status.COMPLETED, updated_at=timezone.now())
+
+            reward_count = TokenTransaction.objects.filter(
+                user=user,
+                type="todo_reward",
+                created_at__date=timezone.localdate(),
+            ).count()
+            reward = TODO_REWARD_AMOUNT if reward_count < TODO_DAILY_REWARD_LIMIT else 0
+            if reward:
+                user.token_balance += reward
+                user.save(update_fields=["token_balance", "updated_at"])
+                TokenTransaction.objects.create(
+                    user=user,
+                    amount=reward,
+                    type="todo_reward",
+                    reference_id=str(todo.todo_id),
+                )
+
+            def _schedule_feeds() -> None:
+                from apps.posts.tasks import generate_feed_post
+
+                for quest_id in quest_ids:
+                    try:
+                        generate_feed_post.delay(str(quest_id))
+                    except Exception:
+                        logger.warning("피드 생성 예약 실패: quest_id=%s", quest_id)
+
+            transaction.on_commit(_schedule_feeds)
+
+            if (
+                not Todo.objects.filter(
+                    user=request.user,
+                    todo_date=todo.todo_date,
+                )
+                .exclude(status=Todo.Status.COMPLETED)
+                .exists()
+            ):
+                create_reflection_notification(
+                    user=request.user,
+                    reflection_date=todo.todo_date,
+                )
+
+        return Response(
+            {
+                "todo_id": str(todo.todo_id),
+                "status": todo.status,
+                "reward": reward,
+                "token_balance": user.token_balance,
+            }
         )
-        todo.quests.update(status=Quest.Status.COMPLETED, updated_at=timezone.now())
-
-        def _schedule_feeds() -> None:
-            from apps.posts.tasks import generate_feed_post
-
-            for quest_id in quest_ids:
-                try:
-                    generate_feed_post.delay(str(quest_id))
-                except Exception:
-                    logger.warning("피드 생성 예약 실패: quest_id=%s", quest_id)
-
-        transaction.on_commit(_schedule_feeds)
-
-        if (
-            not Todo.objects.filter(
-                user=request.user,
-                todo_date=todo.todo_date,
-            )
-            .exclude(status=Todo.Status.COMPLETED)
-            .exists()
-        ):
-            create_reflection_notification(
-                user=request.user,
-                reflection_date=todo.todo_date,
-            )
-
-        return Response({"todo_id": str(todo.todo_id), "status": todo.status})
 
 
 class TodoFailView(APIView):
