@@ -28,4 +28,7 @@ RUN uv sync --locked --no-dev
 
 EXPOSE 8000
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120"]
+# AI(generate/chat)는 요청 안에서 mongle-ai 를 최대 150s 동기 폴링한다. 동기 워커만 쓰면
+# 워커 4개가 곧장 묶여(starvation) 다른 요청이 본문 없는 502 를 받는다. IO 대기 중 GIL 을
+# 놓는 thread 워커로 동시성을 확보하고, timeout 은 AI 예산(150s) 위로 올린다.
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "16", "--timeout", "180"]
