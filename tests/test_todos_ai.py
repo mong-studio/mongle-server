@@ -402,14 +402,16 @@ def test_todo_confirm_accepts_tag_names(auth_client, character) -> None:
 
 # 퀘스트 생성 클라이언트가 FastAPI의 퀘스트 생성 경로로 요청을 보내는지 확인
 def test_todo_ai_client_uses_fastapi_quest_path(monkeypatch) -> None:
+    """quest 분배는 generate/chat 과 동일하게 submit(202)+poll 비동기 경로를 쓴다."""
     seen = {}
 
-    def _fake_post(self, path, payload):
-        seen["path"] = path
+    def _fake_submit_and_poll(self, *, submit_path, poll_prefix, payload):
+        seen["submit_path"] = submit_path
+        seen["poll_prefix"] = poll_prefix
         seen["payload"] = payload
         return {"generated": [], "skipped": []}
 
-    monkeypatch.setattr(TodoAIClient, "_post", _fake_post)
+    monkeypatch.setattr(TodoAIClient, "_submit_and_poll", _fake_submit_and_poll)
 
     client = TodoAIClient(base_url="http://ai.test", api_key="token")
     result = client.generate_quests(
@@ -419,7 +421,8 @@ def test_todo_ai_client_uses_fastapi_quest_path(monkeypatch) -> None:
     )
 
     assert result == {"generated": [], "skipped": []}
-    assert seen["path"] == "/v1/quest/generate"
+    assert seen["submit_path"] == "/v1/quest/generate"
+    assert seen["poll_prefix"] == "/v1/quest/generate"
 
 
 # TODO AI 클라이언트가 캐릭터 생성 경로와 동일하게 httpx 기반 요청을 사용하는지 확인

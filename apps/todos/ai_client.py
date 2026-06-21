@@ -59,9 +59,12 @@ class TodoAIClient:
         characters: list[dict[str, Any]],
         remaining_daily_quota: int,
     ) -> dict[str, Any]:
-        return self._post(
-            "/v1/quest/generate",
-            {
+        # 퀘스트 분배 LLM 은 캐릭터 수만큼 순차 호출되어 Pod 100s 프록시를 넘기므로
+        # generate/chat 과 동일하게 submit(202)+poll(GET) 로 100s 벽을 우회한다.
+        return self._submit_and_poll(
+            submit_path="/v1/quest/generate",
+            poll_prefix="/v1/quest/generate",
+            payload={
                 "todos": todos,
                 "characters": characters,
                 "remaining_daily_quota": remaining_daily_quota,
@@ -99,15 +102,6 @@ class TodoAIClient:
             if time.monotonic() >= deadline:
                 raise TodoAIClientError("mongle-ai 폴링 타임아웃")
             time.sleep(_POLL_INTERVAL_SECONDS)
-
-    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """동기 엔드포인트(quest 분배)용 단일 POST. done 봉투의 result 를 반환한다."""
-        body = self._request(
-            "POST", path, payload=payload, timeout=self.timeout_seconds
-        )
-        if body.get("status") != "done":
-            raise TodoAIClientError(f"mongle-ai returned non-done envelope: {body}")
-        return self._unwrap_result(body)
 
     @staticmethod
     def _unwrap_result(body: dict[str, Any]) -> dict[str, Any]:
