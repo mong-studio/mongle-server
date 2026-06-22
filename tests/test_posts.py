@@ -158,3 +158,45 @@ def test_comment_create_post_not_found(auth_client: APIClient) -> None:
         format="json",
     )
     assert response.status_code == 404
+
+
+# 좋아요 토글: 첫 호출 True, 재호출 False — DB에 저장되는지 확인
+@pytest.mark.django_db
+def test_post_like_toggle(auth_client: APIClient, post: Post) -> None:
+    assert post.is_liked is False
+
+    r1 = auth_client.post(f"/api/v1/posts/{post.post_id}/like/")
+    assert r1.status_code == 200
+    assert r1.json()["is_liked"] is True
+    post.refresh_from_db()
+    assert post.is_liked is True
+
+    r2 = auth_client.post(f"/api/v1/posts/{post.post_id}/like/")
+    assert r2.status_code == 200
+    assert r2.json()["is_liked"] is False
+    post.refresh_from_db()
+    assert post.is_liked is False
+
+
+# 비로그인 상태에서 좋아요 시 401 반환 확인
+@pytest.mark.django_db
+def test_post_like_unauthenticated(post: Post) -> None:
+    client = APIClient()
+    response = client.post(f"/api/v1/posts/{post.post_id}/like/")
+    assert response.status_code == 401
+
+
+# 다른 사용자의 게시글에 좋아요 시 404 (완전 개인용 — IDOR 방지)
+@pytest.mark.django_db
+def test_post_like_other_user_forbidden(auth_client: APIClient) -> None:
+    other_post = _make_other_user_post()
+    response = auth_client.post(f"/api/v1/posts/{other_post.post_id}/like/")
+    assert response.status_code == 404
+
+
+# 목록 응답에 is_liked 필드가 포함되는지 확인
+@pytest.mark.django_db
+def test_post_list_includes_is_liked(auth_client: APIClient, post: Post) -> None:
+    response = auth_client.get("/api/v1/posts/")
+    assert response.status_code == 200
+    assert response.json()[0]["is_liked"] is False
