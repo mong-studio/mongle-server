@@ -89,6 +89,98 @@ def test_email_verification_request_rejects_duplicated_email() -> None:
     assert response.json()["error"]["message"] == "EMAIL_DUPLICATED"
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_verification_sends_code_to_active_email_user(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_redis_store: fakeredis.FakeRedis,
+) -> None:
+    User.objects.create_user(
+        email="user@example.com",
+        password="password123!",
+        user_name="몽글이",
+        birth="2000-01-01",
+    )
+    monkeypatch.setattr(account_views, "_generate_code", lambda: "ABCDEF")
+
+    response = post_json(
+        Client(),
+        "/api/v1/auth/email-verification",
+        {"email": "USER@example.com", "purpose": "PASSWORD_RESET"},
+    )
+
+    assert response.status_code == 201
+    assert mail.outbox[0].to == ["user@example.com"]
+    assert "ABCDEF" in mail.outbox[0].body
+    assert (
+        fake_redis_store.get("email_verification:user@example.com:PASSWORD_RESET")
+        is not None
+    )
+
+
+@pytest.mark.parametrize(
+    "email,is_active",
+    [
+        ("unknown@example.com", None),
+        ("inactive@example.com", False),
+    ],
+)
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_verification_rejects_unavailable_email_without_sending(
+    email: str,
+    is_active: bool | None,
+    fake_redis_store: fakeredis.FakeRedis,
+) -> None:
+    if is_active is not None:
+        User.objects.create_user(
+            email=email,
+            password="password123!",
+            user_name="몽글이",
+            birth="2000-01-01",
+            is_active=is_active,
+        )
+
+    response = post_json(
+        Client(),
+        "/api/v1/auth/email-verification",
+        {"email": email, "purpose": "PASSWORD_RESET"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"] == {
+        "code": 404,
+        "message": "USER_NOT_FOUND",
+        "details": {},
+    }
+    assert mail.outbox == []
+    assert fake_redis_store.get(f"email_verification:{email}:PASSWORD_RESET") is None
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_verification_rejects_social_user_without_sending(
+    fake_redis_store: fakeredis.FakeRedis,
+) -> None:
+    User.objects.create_user(
+        email="social@example.com",
+        user_name="소셜유저",
+        birth="2000-01-01",
+        login_type=User.LoginType.KAKAO,
+    )
+
+    response = post_json(
+        Client(),
+        "/api/v1/auth/email-verification",
+        {"email": "social@example.com", "purpose": "PASSWORD_RESET"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["message"] == "SOCIAL_ACCOUNT_NO_PASSWORD"
+    assert mail.outbox == []
+    assert (
+        fake_redis_store.get("email_verification:social@example.com:PASSWORD_RESET")
+        is None
+    )
+
+
 # 30초 이내 동일 이메일로 재발송 요청 시 429 EMAIL_VERIFICATION_RATE_LIMITED 반환 확인
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_email_verification_request_rate_limits_resend(

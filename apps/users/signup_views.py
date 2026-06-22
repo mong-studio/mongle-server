@@ -120,6 +120,13 @@ def request_email_verification(request: HttpRequest) -> JsonResponse:
     if purpose == "SIGNUP" and User.objects.filter(email=email).exists():
         return error_response(409, "EMAIL_DUPLICATED")
 
+    if purpose == "PASSWORD_RESET":
+        user = User.objects.filter(email=email).first()
+        if user is None or not user.is_active:
+            return error_response(404, "USER_NOT_FOUND")
+        if user.login_type != User.LoginType.EMAIL:
+            return error_response(403, "SOCIAL_ACCOUNT_NO_PASSWORD")
+
     now = timezone.now()
 
     current = _get_verification(email, purpose)
@@ -280,10 +287,12 @@ def password_reset(request: HttpRequest) -> JsonResponse:
     except ValidationError as exc:
         return validation_error_response(exc)
 
-    kakao_user = User.objects.filter(
-        email=email, login_type=User.LoginType.KAKAO
-    ).first()
-    if kakao_user is not None:
+    social_user = (
+        User.objects.filter(email=email)
+        .exclude(login_type=User.LoginType.EMAIL)
+        .first()
+    )
+    if social_user is not None:
         return error_response(403, "SOCIAL_ACCOUNT_NO_PASSWORD")
 
     raw_token = body.get("verification_token")
