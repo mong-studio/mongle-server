@@ -51,6 +51,7 @@ class PostSerializer(serializers.ModelSerializer):
             "character_name",
             "img_url",
             "content",
+            "is_liked",
             "comments",
             "created_at",
         )

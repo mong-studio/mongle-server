@@ -69,3 +69,16 @@ class CommentCreateView(APIView):
         transaction.on_commit(_schedule_reply)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class PostLikeView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, post_id):
+        # 완전 개인용 피드 — 본인 캐릭터 게시물만 좋아요를 토글할 수 있다.
+        post = generics.get_object_or_404(
+            Post, post_id=post_id, character__user=request.user
+        )
+        post.is_liked = not post.is_liked
+        post.save(update_fields=["is_liked", "updated_at"])
+        return Response({"is_liked": post.is_liked}, status=status.HTTP_200_OK)
