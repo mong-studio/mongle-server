@@ -41,6 +41,9 @@ class PostSerializer(serializers.ModelSerializer):
     character_name = serializers.CharField(
         source="character.character_name", read_only=True
     )
+    character_is_active = serializers.BooleanField(
+        source="character.is_active", read_only=True
+    )
     comments = CommentSerializer(many=True, read_only=True)
 
     class Meta:
@@ -49,8 +52,10 @@ class PostSerializer(serializers.ModelSerializer):
             "post_id",
             "character",
             "character_name",
+            "character_is_active",
             "img_url",
             "content",
+            "is_liked",
             "comments",
             "created_at",
         )

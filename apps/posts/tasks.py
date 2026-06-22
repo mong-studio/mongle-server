@@ -96,6 +96,10 @@ def generate_character_reply(self, comment_id: str) -> None:
 
     character = comment.post.character
 
+    # 비활성(은퇴) 캐릭터는 답글을 달지 않는다.
+    if not character.is_active:
+        return
+
     if Reply.objects.filter(comment=comment, character=character).exists():
         return
 
