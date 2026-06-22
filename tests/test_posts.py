@@ -5,7 +5,39 @@ from __future__ import annotations
 import pytest
 from rest_framework.test import APIClient
 
+from apps.characters.models import Character
 from apps.posts.models import Post
+from apps.quests.models import Quest
+from apps.tags.models import Tag
+from apps.todos.models import Todo
+from apps.users.models import User
+
+
+def _make_other_user_post() -> Post:
+    """다른 사용자 소유의 게시글을 하나 만든다(스코프 격리 검증용)."""
+    other = User.objects.create_user(
+        email="other@test.com",
+        password="password123",
+        user_name="다른유저",
+        birth="2000-01-01",
+    )
+    character = Character.objects.create(
+        user=other,
+        character_name="남의캐릭터",
+        gen_img_url="https://example.com/other.png",
+        persona="페르소나",
+    )
+    tag = Tag.objects.create(tag_id=2, user=other, content="운동", color="#00ff00")
+    todo = Todo.objects.create(
+        user=other, tag=tag, content="남의TODO", todo_date="2026-06-02"
+    )
+    quest = Quest.objects.create(character=character, todo=todo, content="남의 퀘스트")
+    return Post.objects.create(
+        character=character,
+        quest=quest,
+        content="남의 게시글",
+        img_url="https://example.com/other.png",
+    )
 
 
 # 비로그인 상태에서 게시글 목록 조회 시 401 반환 확인
@@ -36,6 +68,26 @@ def test_post_list_returns_posts(auth_client: APIClient, post: Post) -> None:
     assert data[0]["content"] == "테스트 게시글"
     assert data[0]["img_url"] == "https://example.com/img.png"
     assert "comments" in data[0]
+
+
+# 목록에는 본인 캐릭터의 게시글만 보이고 다른 사용자의 게시글은 제외된다
+@pytest.mark.django_db
+def test_post_list_only_returns_own_posts(auth_client: APIClient, post: Post) -> None:
+    other_post = _make_other_user_post()
+    response = auth_client.get("/api/v1/posts/")
+    assert response.status_code == 200
+    data = response.json()
+    post_ids = {item["post_id"] for item in data}
+    assert str(post.post_id) in post_ids
+    assert str(other_post.post_id) not in post_ids
+
+
+# 다른 사용자의 게시글 상세를 post_id로 직접 조회하면 404 (IDOR 방지)
+@pytest.mark.django_db
+def test_post_detail_other_user_forbidden(auth_client: APIClient) -> None:
+    other_post = _make_other_user_post()
+    response = auth_client.get(f"/api/v1/posts/{other_post.post_id}/")
+    assert response.status_code == 404
 
 
 # 비로그인 상태에서 게시글 상세 조회 시 401 반환 확인
@@ -83,6 +135,18 @@ def test_comment_create_success(auth_client: APIClient, post: Post) -> None:
     )
     assert response.status_code == 201
     assert response.json()["content"] == "댓글 내용"
+
+
+# 다른 사용자의 게시글에 댓글 작성 시 404 (완전 개인용 — IDOR 방지)
+@pytest.mark.django_db
+def test_comment_create_other_user_forbidden(auth_client: APIClient) -> None:
+    other_post = _make_other_user_post()
+    response = auth_client.post(
+        f"/api/v1/posts/{other_post.post_id}/comments/",
+        {"content": "댓글"},
+        format="json",
+    )
+    assert response.status_code == 404
 
 
 # 존재하지 않는 게시글에 댓글 작성 시 404 반환 확인
