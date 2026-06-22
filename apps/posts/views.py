@@ -22,21 +22,30 @@ _POST_QUERYSET = Post.objects.select_related("character").prefetch_related(
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = _POST_QUERYSET.order_by("-created_at")
+
+    def get_queryset(self):
+        return _POST_QUERYSET.filter(character__user=self.request.user).order_by(
+            "-created_at"
+        )
 
 
 class PostDetailView(generics.RetrieveAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
-    queryset = _POST_QUERYSET
     lookup_field = "post_id"
+
+    def get_queryset(self):
+        return _POST_QUERYSET.filter(character__user=self.request.user)
 
 
 class CommentCreateView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request, post_id):
-        post = generics.get_object_or_404(Post, post_id=post_id)
+        # 서비스 내 피드는 완전 개인용 — 본인 캐릭터 게시물에만 댓글을 달 수 있다.
+        post = generics.get_object_or_404(
+            Post, post_id=post_id, character__user=request.user
+        )
 
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
