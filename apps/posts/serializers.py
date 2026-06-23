@@ -42,6 +42,15 @@ class PostSerializer(serializers.ModelSerializer):
         source="character.character_name", read_only=True
     )
     comments = CommentSerializer(many=True, read_only=True)
+    # img_url 컬럼엔 생성 시점의 presigned URL(만료 1h)이 들어있다. 그대로 내려주면
+    # 1시간 뒤 'Request has expired'(403)로 깨지므로, 조회 시점에 key를 추출해 새로
+    # 서명한다. 캐릭터 gen_img_url 과 동일한 패턴.
+    img_url = serializers.SerializerMethodField()
+
+    def get_img_url(self, obj: Post) -> str:
+        from apps.characters.serializers import _resolve_gen_img_url
+
+        return _resolve_gen_img_url(obj.img_url)
 
     class Meta:
         model = Post
