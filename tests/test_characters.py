@@ -208,6 +208,29 @@ def test_generation_job_create_daily_limit_exceeded(
     assert response.status_code == 429
 
 
+# 생성 횟수 조회 시 오늘의 used 와 일일 limit 을 반환하는지 확인
+@pytest.mark.django_db
+def test_generation_quota_returns_used_and_limit(
+    auth_client: APIClient, user: User
+) -> None:
+    from apps.characters.models import ImgGenLog
+
+    ImgGenLog.objects.create(user=user, gen_cnt=1)
+    ImgGenLog.objects.create(user=user, gen_cnt=2)
+
+    response = auth_client.get("/api/v1/characters/generation-jobs/quota/")
+
+    assert response.status_code == 200
+    assert response.json() == {"used": 2, "limit": 3}
+
+
+# 비로그인 상태에서 생성 횟수 조회 시 401 반환 확인
+@pytest.mark.django_db
+def test_generation_quota_unauthenticated() -> None:
+    response = APIClient().get("/api/v1/characters/generation-jobs/quota/")
+    assert response.status_code == 401
+
+
 # 이미 활성 캐릭터가 10개인 경우 422 응답 확인 (캐릭터 최대 보유 수 초과)
 @pytest.mark.django_db
 def test_generation_job_create_character_limit_exceeded(
