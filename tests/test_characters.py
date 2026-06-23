@@ -743,6 +743,31 @@ def test_process_job_submits_polls_and_saves_appearance(user: User, settings) ->
     assert job.appearance == "둥근 갈색 몸"
 
 
+# 생성 실패 시 제출 시점에 차감한 일일 생성 횟수(ImgGenLog)가 환불(삭제)되는지 확인
+@pytest.mark.django_db
+def test_process_job_failure_refunds_gen_count(user: User, settings) -> None:
+    from apps.characters.models import ImgGenLog
+
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+    job = CharacterGenerationJob.objects.create(
+        user=user, personality_keywords=["다정한"], status="QUEUED"
+    )
+    log = ImgGenLog.objects.create(user=user, gen_cnt=1)
+
+    with patch("apps.characters.tasks.httpx.post", side_effect=RuntimeError("AI down")):
+        from apps.characters.tasks import process_character_generation_job
+
+        process_character_generation_job(
+            str(job.job_id), "몽글", "착한 곰", log.img_gen_log_id
+        )
+
+    job.refresh_from_db()
+    assert job.status == "FAILED"
+    # 실패했으므로 해당 생성 로그는 삭제(환불)되어야 한다.
+    assert not ImgGenLog.objects.filter(pk=log.img_gen_log_id).exists()
+
+
 # AI 가 생성한 성격/말투/배경이 하나의 persona 텍스트로 합쳐져 저장되는지 확인
 @pytest.mark.django_db
 def test_process_job_composes_persona_from_ai_result(user: User, settings) -> None:
