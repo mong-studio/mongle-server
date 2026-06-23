@@ -64,7 +64,8 @@ class CharacterListItemSerializer(serializers.ModelSerializer):
 
 class ActiveQuestSerializer(serializers.ModelSerializer):
     todo_id = serializers.UUIDField(source="todo.todo_id", read_only=True)
-    title = serializers.CharField(source="todo.content", read_only=True)
+    # 퀘스트 제목은 Quest 자신의 content (TODO 내용이 아니라 캐릭터에게 부여된 퀘스트).
+    title = serializers.CharField(source="content", read_only=True)
 
     class Meta:
         model = Quest
