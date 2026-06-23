@@ -67,6 +67,19 @@ def test_keep_seed_preserves_seed_character() -> None:
 
 
 @pytest.mark.django_db
+def test_daily_only_clears_logs_but_keeps_characters() -> None:
+    user = _make_user("demo@mongle.dev")
+    _make_character(user, "라니")
+    ImgGenLog.objects.create(user=user, gen_cnt=1)
+
+    _run(email="demo@mongle.dev", daily_only=True)
+
+    # 오늘자 생성 로그만 지우고 캐릭터는 활성 그대로 둔다.
+    assert ImgGenLog.objects.filter(user=user).count() == 0
+    assert Character.objects.filter(user=user, is_active=True).count() == 1
+
+
+@pytest.mark.django_db
 def test_reset_only_targets_requested_user() -> None:
     target = _make_user("demo@mongle.dev")
     other = _make_user("other@mongle.dev")
