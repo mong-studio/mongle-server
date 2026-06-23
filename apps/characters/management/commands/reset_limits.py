@@ -8,6 +8,7 @@
 사용:
     python manage.py reset_limits --email demo@mongle.dev
     python manage.py reset_limits --email demo@mongle.dev --keep-seed
+    python manage.py reset_limits --email demo@mongle.dev --daily-only
 """
 
 from __future__ import annotations
@@ -37,25 +38,32 @@ class Command(BaseCommand):
             action="store_true",
             help=f"시드 캐릭터('{SEED_CHARACTER_NAME}')는 남겨둔다",
         )
+        parser.add_argument(
+            "--daily-only",
+            action="store_true",
+            help="캐릭터는 건드리지 않고 오늘자 생성 한도만 초기화한다",
+        )
 
     @transaction.atomic
     def handle(self, *args: Any, **options: Any) -> None:
         email: str = options["email"]
         keep_seed: bool = options["keep_seed"]
+        daily_only: bool = options["daily_only"]
 
         if not User.objects.filter(email=email).exists():
             raise CommandError(f"유저를 찾을 수 없습니다: {email}")
 
-        deactivated = self._reset_characters(email, keep_seed)
         deleted_logs = self._reset_daily_generation(email)
-
-        active_remaining = Character.objects.filter(
-            user__email=email, is_active=True
-        ).count()
         self.stdout.write(self.style.SUCCESS(f"{email} 한도 초기화 완료"))
-        self.stdout.write(
-            f"  캐릭터 비활성화: {deactivated}개 → 현재 활성 {active_remaining}개"
-        )
+
+        if not daily_only:
+            deactivated = self._reset_characters(email, keep_seed)
+            active_remaining = Character.objects.filter(
+                user__email=email, is_active=True
+            ).count()
+            self.stdout.write(
+                f"  캐릭터 비활성화: {deactivated}개 → 현재 활성 {active_remaining}개"
+            )
         self.stdout.write(f"  오늘 생성 로그 삭제: {deleted_logs}개")
 
     def _reset_characters(self, email: str, keep_seed: bool) -> int:
