@@ -227,6 +227,23 @@ class GenerationJobDetailView(APIView):
         return Response(serializer.data)
 
 
+class GenerationQuotaView(APIView):
+    """오늘의 캐릭터 생성 횟수(used)와 일일 한도(limit)를 반환한다."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request: Request) -> Response:
+        today_start = timezone.make_aware(
+            timezone.datetime.combine(
+                timezone.localdate(), timezone.datetime.min.time()
+            )
+        )
+        used = ImgGenLog.objects.filter(
+            user=request.user, created_at__gte=today_start
+        ).count()
+        return Response({"used": used, "limit": MAX_DAILY_GEN})
+
+
 class CharacterListView(APIView):
     """CHAR-004/005: 캐릭터 등록(POST) 및 목록 조회(GET)"""
 

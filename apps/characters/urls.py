@@ -5,6 +5,7 @@ from apps.characters.views import (
     CharacterListView,
     GenerationJobCreateView,
     GenerationJobDetailView,
+    GenerationQuotaView,
     QuestListView,
     SourceImageCreateView,
 )
@@ -15,6 +16,11 @@ urlpatterns = [
         "generation-jobs/",
         GenerationJobCreateView.as_view(),
         name="generation-job-create",
+    ),
+    path(
+        "generation-jobs/quota/",
+        GenerationQuotaView.as_view(),
+        name="generation-quota",
     ),
     path(
         "generation-jobs/<uuid:job_id>/",
