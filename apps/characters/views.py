@@ -193,10 +193,13 @@ class GenerationJobCreateView(APIView):
             status=CharacterGenerationJob.Status.QUEUED,
         )
 
-        ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
+        img_gen_log = ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
 
         process_character_generation_job.delay(
-            str(job.job_id), data["name"], data["persona"]
+            str(job.job_id),
+            data["name"],
+            data["persona"],
+            img_gen_log.img_gen_log_id,
         )
 
         return Response(

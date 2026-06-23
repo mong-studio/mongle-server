@@ -139,7 +139,7 @@ def reset_image_gen_count() -> None:
 
 @shared_task(bind=True, max_retries=3)
 def process_character_generation_job(
-    self, job_id: str, name: str, persona: str
+    self, job_id: str, name: str, persona: str, img_gen_log_id: int | None = None
 ) -> None:
     """AI 서비스(/v1/character)에 캐릭터 생성 요청을 보내고 결과를 저장한다."""
     from django.conf import settings
@@ -227,3 +227,8 @@ def process_character_generation_job(
         logger.exception("character generation job failed: job_id=%s", job_id)
         job.status = CharacterGenerationJob.Status.FAILED
         job.save(update_fields=["status", "updated_at"])
+        # 생성 실패 시 제출 시점에 차감했던 일일 생성 횟수를 환불한다(해당 로그만 삭제).
+        if img_gen_log_id is not None:
+            from apps.characters.models import ImgGenLog
+
+            ImgGenLog.objects.filter(pk=img_gen_log_id).delete()
