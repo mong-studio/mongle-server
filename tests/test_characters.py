@@ -558,11 +558,12 @@ def test_character_detail_authenticated(
     assert payload["name"] == "테스트캐릭터"
     # 원본 사진 없이 만든 캐릭터는 origin_img_url 이 빈 문자열.
     assert payload["origin_img_url"] == ""
+    # title 은 TODO 내용("기획서 초안 쓰기")이 아니라 퀘스트 제목이어야 한다.
     assert payload["active_quests"] == [
         {
             "quest_id": payload["active_quests"][0]["quest_id"],
             "todo_id": str(active_todo.todo_id),
-            "title": "기획서 초안 쓰기",
+            "title": "초안 완성하기",
         }
     ]
 
