@@ -448,6 +448,10 @@ class TodoFailView(APIView):
 
         todo.status = Todo.Status.FAILED
         todo.save(update_fields=["status", "updated_at"])
+        # 포기 시 이 TODO에 연결된 진행 중 퀘스트도 실패 처리한다.
+        Quest.objects.filter(todo=todo, status=Quest.Status.IN_PROGRESS).update(
+            status=Quest.Status.FAILED, updated_at=timezone.now()
+        )
         return Response({"todo_id": str(todo.todo_id), "status": todo.status})
 
 
