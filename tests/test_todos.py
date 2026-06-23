@@ -132,6 +132,23 @@ def test_todo_complete_marks_linked_quest_completed(
     assert quest.status == Quest.Status.COMPLETED
 
 
+# 포기(fail) 처리 시 연결된 진행 중 퀘스트도 실패 상태로 변경되는지 확인
+@pytest.mark.django_db
+def test_todo_fail_marks_linked_quest_failed(
+    auth_client: APIClient, todo: Todo, quest: Quest
+) -> None:
+    assert quest.status == Quest.Status.IN_PROGRESS
+
+    response = auth_client.patch(f"/api/v1/todos/{todo.todo_id}/fail/")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == Todo.Status.FAILED
+    todo.refresh_from_db()
+    quest.refresh_from_db()
+    assert todo.status == Todo.Status.FAILED
+    assert quest.status == Quest.Status.FAILED
+
+
 @pytest.mark.django_db
 def test_todo_complete_rewards_token_and_returns_server_balance(
     auth_client: APIClient, todo: Todo
