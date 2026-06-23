@@ -195,7 +195,7 @@ AWS_S3_BUCKET = env("AWS_S3_BUCKET", default="")
 # 정책(mongle-village/*)을 일치시킨다.
 AWS_S3_PREFIX = env("AWS_S3_PREFIX", default="mongle-village")
 AWS_S3_REGION = env("AWS_S3_REGION", default="ap-northeast-2")
-AWS_S3_PRESIGNED_URL_EXPIRY = env.int("AWS_S3_PRESIGNED_URL_EXPIRY", default=600)
+AWS_S3_PRESIGNED_URL_EXPIRY = env.int("AWS_S3_PRESIGNED_URL_EXPIRY", default=3600)
 AI_SERVICE_URL = env("AI_SERVICE_URL", default="")
 AI_SERVICE_TOKEN = env("AI_SERVICE_TOKEN", default="")
 
