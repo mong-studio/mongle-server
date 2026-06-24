@@ -380,9 +380,11 @@ class CharacterDetailView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request: Request, character_id: uuid.UUID) -> Response:
+        # 이사 간(is_active=False) 캐릭터도 본인 소유면 조회 가능해야 한다
+        # — 피드/프로필이 그대로 남아야 하므로 활성 여부로 거르지 않는다.
         try:
             character = Character.objects.get(
-                character_id=character_id, user=request.user, is_active=True
+                character_id=character_id, user=request.user
             )
         except Character.DoesNotExist:
             return Response({"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
