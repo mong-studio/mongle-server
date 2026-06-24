@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlparse
 
 from rest_framework import serializers
@@ -43,6 +44,21 @@ def _resolve_gen_img_url(raw: str) -> str:
         return raw
 
 
+# persona 는 "[성격]\n...[말투]\n...[배경]" 형식. [성격] 구획 본문만 캡처한다.
+_PERSONALITY_RE = re.compile(r"\[성격\]\s*(.*?)(?=\[[^\]]+\]|$)", re.DOTALL)
+
+
+def _extract_personality(persona: str) -> str:
+    """persona 에서 [성격] 구획 본문만 추출한다(마커 없으면 원문 전체).
+
+    프론트가 정규식으로 직접 자르지 않도록 서버에서 한 번만 파싱해 내려준다.
+    """
+    if not persona:
+        return ""
+    match = _PERSONALITY_RE.search(persona)
+    return (match.group(1) if match else persona).strip()
+
+
 class CharacterListItemSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
     active_quest_count = serializers.IntegerField(read_only=True)
@@ -77,6 +93,8 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="character_name", read_only=True)
     origin_img_url = serializers.SerializerMethodField()
     gen_img_url = serializers.SerializerMethodField()
+    # persona 의 [성격] 구획만 추출한 값. 소개란에 그대로 쓴다.
+    personality = serializers.SerializerMethodField()
     active_quests = serializers.SerializerMethodField()
     feed_count = serializers.SerializerMethodField()
 
@@ -88,12 +106,16 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
             "origin_img_url",
             "gen_img_url",
             "persona",
+            "personality",
             "is_active",
             "created_at",
             "active_quests",
             "feed_count",
         )
         read_only_fields = fields
+
+    def get_personality(self, obj: Character) -> str:
+        return _extract_personality(obj.persona)
 
     def get_gen_img_url(self, obj: Character) -> str:
         return _resolve_gen_img_url(obj.gen_img_url)

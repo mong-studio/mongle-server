@@ -9,7 +9,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.characters.models import Character
-from apps.posts.models import Comment, Post
+from apps.posts.models import Comment, Post, Reply
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
@@ -107,6 +107,29 @@ def test_post_detail_authenticated(auth_client: APIClient, post: Post) -> None:
     response = auth_client.get(f"/api/v1/posts/{post.post_id}/")
     assert response.status_code == 200
     assert response.json()["content"] == "테스트 게시글"
+
+
+# 이사한 캐릭터의 게시물/답글에도 캐릭터 이미지 URL이 포함되는지 확인
+@pytest.mark.django_db
+def test_post_detail_includes_inactive_character_images(
+    auth_client: APIClient,
+    post: Post,
+    character: Character,
+    user: User,
+) -> None:
+    comment = Comment.objects.create(post=post, user=user, content="댓글")
+    Reply.objects.create(comment=comment, character=character, content="답글")
+    character.is_active = False
+    character.save(update_fields=["is_active"])
+
+    response = auth_client.get(f"/api/v1/posts/{post.post_id}/")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["gen_img_url"] == "https://example.com/img.png"
+    assert payload["comments"][0]["replies"][0]["gen_img_url"] == (
+        "https://example.com/img.png"
+    )
 
 
 # 존재하지 않는 post_id로 조회 시 404 반환 확인

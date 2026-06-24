@@ -624,6 +624,55 @@ def test_character_detail_returns_feed_count(
     assert response.json()["feed_count"] == 2
 
 
+# 상세 조회 시 persona 의 [성격] 구획만 추출한 personality 필드를 함께 내려주는지 확인
+@pytest.mark.django_db
+def test_character_detail_returns_extracted_personality(
+    auth_client: APIClient, user: User
+) -> None:
+    char = Character.objects.create(
+        user=user,
+        character_name="구획캐릭터",
+        gen_img_url="https://example.com/x.png",
+        persona="[성격]\n다정하고 차분해요\n[말투]\n반말을 써요\n[배경]\n숲속 마을",
+    )
+
+    response = auth_client.get(f"/api/v1/characters/{char.character_id}/")
+
+    assert response.status_code == 200
+    data = response.json()
+    # [성격] 구획 본문만 추출된다.
+    assert data["personality"] == "다정하고 차분해요"
+    # 원문 persona 도 그대로 함께 내려준다.
+    assert data["persona"].startswith("[성격]")
+
+
+def test_extract_personality_falls_back_to_full_text() -> None:
+    from apps.characters.serializers import _extract_personality
+
+    assert _extract_personality("[성격] 활발함 [말투] 존댓말") == "활발함"
+    assert _extract_personality("그냥 한 줄 페르소나") == "그냥 한 줄 페르소나"
+    assert _extract_personality("") == ""
+
+
+# 이사 간(is_active=False) 캐릭터도 본인 소유면 상세 조회가 200으로 가능한지 확인
+@pytest.mark.django_db
+def test_character_detail_allows_inactive_owned_character(
+    auth_client: APIClient, user: User
+) -> None:
+    char = Character.objects.create(
+        user=user,
+        character_name="이사간캐릭터",
+        gen_img_url="https://example.com/x.png",
+        persona="페르소나",
+        is_active=False,
+    )
+
+    response = auth_client.get(f"/api/v1/characters/{char.character_id}/")
+
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+
+
 # 등록 시 origin_img_url 컬럼에 원본 사진의 S3 object_key가 저장되는지 확인
 @pytest.mark.django_db
 def test_character_register_stores_origin_object_key(

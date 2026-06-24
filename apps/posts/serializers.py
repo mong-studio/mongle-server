@@ -7,11 +7,24 @@ class ReplySerializer(serializers.ModelSerializer):
     character_name = serializers.CharField(
         source="character.character_name", read_only=True
     )
+    gen_img_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Reply
-        fields = ("reply_id", "character", "character_name", "content", "created_at")
+        fields = (
+            "reply_id",
+            "character",
+            "character_name",
+            "gen_img_url",
+            "content",
+            "created_at",
+        )
         read_only_fields = fields
+
+    def get_gen_img_url(self, obj: Reply) -> str:
+        from apps.characters.serializers import _resolve_gen_img_url
+
+        return _resolve_gen_img_url(obj.character.gen_img_url)
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -41,6 +54,7 @@ class PostSerializer(serializers.ModelSerializer):
     character_name = serializers.CharField(
         source="character.character_name", read_only=True
     )
+    gen_img_url = serializers.SerializerMethodField()
     comments = CommentSerializer(many=True, read_only=True)
     # img_url 컬럼엔 생성 시점의 presigned URL(만료 1h)이 들어있다. 그대로 내려주면
     # 1시간 뒤 'Request has expired'(403)로 깨지므로, 조회 시점에 key를 추출해 새로
@@ -54,12 +68,18 @@ class PostSerializer(serializers.ModelSerializer):
 
         return _resolve_gen_img_url(obj.img_url)
 
+    def get_gen_img_url(self, obj: Post) -> str:
+        from apps.characters.serializers import _resolve_gen_img_url
+
+        return _resolve_gen_img_url(obj.character.gen_img_url)
+
     class Meta:
         model = Post
         fields = (
             "post_id",
             "character",
             "character_name",
+            "gen_img_url",
             "img_url",
             "content",
             "is_liked",
