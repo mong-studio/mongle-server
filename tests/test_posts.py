@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.utils import timezone
 import pytest
 from rest_framework.test import APIClient
 
 from apps.characters.models import Character
-from apps.posts.models import Post
+from apps.posts.models import Comment, Post
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
-from apps.users.models import User
+from apps.users.models import TokenTransaction, User
 
 
 def _make_other_user_post() -> Post:
@@ -200,3 +203,131 @@ def test_post_list_includes_is_liked(auth_client: APIClient, post: Post) -> None
     response = auth_client.get("/api/v1/posts/")
     assert response.status_code == 200
     assert response.json()[0]["is_liked"] is False
+
+
+# 댓글 작성 시 토큰 3개가 차감되고 거래내역이 기록된다
+@pytest.mark.django_db
+def test_comment_create_deducts_tokens(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    user.token_balance = 5
+    user.save(update_fields=["token_balance"])
+
+    response = auth_client.post(
+        f"/api/v1/posts/{post.post_id}/comments/",
+        {"content": "댓글"},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    user.refresh_from_db()
+    assert user.token_balance == 2
+    tx = TokenTransaction.objects.get(user=user, type="comment_create")
+    assert tx.amount == -3
+    assert tx.reference_id == response.json()["comment_id"]
+
+
+# 토큰이 부족하면 402를 반환하고 댓글이 생성되지 않는다
+@pytest.mark.django_db
+def test_comment_create_insufficient_tokens(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    user.token_balance = 2
+    user.save(update_fields=["token_balance"])
+
+    response = auth_client.post(
+        f"/api/v1/posts/{post.post_id}/comments/",
+        {"content": "댓글"},
+        format="json",
+    )
+
+    assert response.status_code == 402
+    assert Comment.objects.filter(post=post).count() == 0
+    user.refresh_from_db()
+    assert user.token_balance == 2
+
+
+# 하루 5개를 초과하면 429를 반환한다
+@pytest.mark.django_db
+def test_comment_create_daily_limit(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    user.token_balance = 100
+    user.save(update_fields=["token_balance"])
+
+    for _ in range(5):
+        ok = auth_client.post(
+            f"/api/v1/posts/{post.post_id}/comments/",
+            {"content": "댓글"},
+            format="json",
+        )
+        assert ok.status_code == 201
+
+    blocked = auth_client.post(
+        f"/api/v1/posts/{post.post_id}/comments/",
+        {"content": "여섯 번째"},
+        format="json",
+    )
+
+    assert blocked.status_code == 429
+    assert Comment.objects.filter(user=user).count() == 5
+
+
+# 어제 댓글은 오늘 한도에 포함되지 않는다
+@pytest.mark.django_db
+def test_comment_daily_limit_resets_each_day(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    user.token_balance = 100
+    user.save(update_fields=["token_balance"])
+
+    # 어제 작성한 댓글 5개를 직접 생성한다.
+    yesterday = timezone.now() - timedelta(days=1)
+    for _ in range(5):
+        c = Comment.objects.create(post=post, user=user, content="어제 댓글")
+        Comment.objects.filter(pk=c.pk).update(created_at=yesterday)
+
+    response = auth_client.post(
+        f"/api/v1/posts/{post.post_id}/comments/",
+        {"content": "오늘 첫 댓글"},
+        format="json",
+    )
+
+    assert response.status_code == 201
+
+
+# 댓글은 오래된 순(오름차순)으로 반환된다
+@pytest.mark.django_db
+def test_comments_ordered_ascending(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    now = timezone.now()
+    contents = ["가장 오래된", "중간", "가장 최근"]
+    for i, content in enumerate(contents):
+        c = Comment.objects.create(post=post, user=user, content=content)
+        Comment.objects.filter(pk=c.pk).update(created_at=now + timedelta(minutes=i))
+
+    response = auth_client.get(f"/api/v1/posts/{post.post_id}/")
+
+    assert response.status_code == 200
+    returned = [c["content"] for c in response.json()["comments"]]
+    assert returned == contents
+
+
+# 상세 응답에 오늘 작성한 댓글 수(daily_comment_count)가 포함된다 (#70)
+@pytest.mark.django_db
+def test_post_detail_includes_daily_comment_count(
+    auth_client: APIClient, post: Post, user: User
+) -> None:
+    # 오늘 2개, 어제 1개 작성 → 오늘 카운트는 2여야 한다.
+    Comment.objects.create(post=post, user=user, content="오늘1")
+    Comment.objects.create(post=post, user=user, content="오늘2")
+    yesterday = Comment.objects.create(post=post, user=user, content="어제")
+    Comment.objects.filter(pk=yesterday.pk).update(
+        created_at=timezone.now() - timedelta(days=1)
+    )
+
+    response = auth_client.get(f"/api/v1/posts/{post.post_id}/")
+
+    assert response.status_code == 200
+    assert response.json()["daily_comment_count"] == 2

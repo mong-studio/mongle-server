@@ -46,6 +46,8 @@ class PostSerializer(serializers.ModelSerializer):
     # 1시간 뒤 'Request has expired'(403)로 깨지므로, 조회 시점에 key를 추출해 새로
     # 서명한다. 캐릭터 gen_img_url 과 동일한 패턴.
     img_url = serializers.SerializerMethodField()
+    # 오늘 작성한 댓글 수(유저 전역). 상세 조회 시 뷰가 context로 주입한다.
+    daily_comment_count = serializers.SerializerMethodField()
 
     def get_img_url(self, obj: Post) -> str:
         from apps.characters.serializers import _resolve_gen_img_url
@@ -62,6 +64,10 @@ class PostSerializer(serializers.ModelSerializer):
             "content",
             "is_liked",
             "comments",
+            "daily_comment_count",
             "created_at",
         )
         read_only_fields = ("post_id", "created_at")
+
+    def get_daily_comment_count(self, obj: Post) -> int | None:
+        return self.context.get("daily_comment_count")
