@@ -11,6 +11,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.characters.models import Character, CharacterGenerationJob, SourceImage
+from apps.posts.models import Post
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
@@ -589,6 +590,38 @@ def test_character_detail_authenticated(
             "title": "초안 완성하기",
         }
     ]
+    # 피드(Post)가 없으면 feed_count 는 0.
+    assert payload["feed_count"] == 0
+
+
+@pytest.mark.django_db
+def test_character_detail_returns_feed_count(
+    auth_client: APIClient,
+    user: User,
+    tag: Tag,
+    character: Character,
+) -> None:
+    todo = Todo.objects.create(
+        user=user,
+        tag=tag,
+        content="기획서 초안 쓰기",
+        todo_date=date(2026, 6, 2),
+        status=Todo.Status.IN_PROGRESS,
+    )
+    quest = Quest.objects.create(
+        character=character, todo=todo, content="초안 완성하기"
+    )
+    Post.objects.create(
+        character=character, quest=quest, content="피드1", img_url="https://x/1.png"
+    )
+    Post.objects.create(
+        character=character, quest=quest, content="피드2", img_url="https://x/2.png"
+    )
+
+    response = auth_client.get(f"/api/v1/characters/{character.character_id}/")
+
+    assert response.status_code == 200
+    assert response.json()["feed_count"] == 2
 
 
 # 등록 시 origin_img_url 컬럼에 원본 사진의 S3 object_key가 저장되는지 확인
