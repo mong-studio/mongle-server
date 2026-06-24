@@ -227,6 +227,35 @@ class GenerationJobDetailView(APIView):
         return Response(serializer.data)
 
 
+class GenerationJobCancelView(APIView):
+    """생성 중인 Job을 취소한다(QUEUED/IN_PROGRESS만 가능).
+
+    status 를 FAILED 로 표시(취소 신호)하면, 실행 중인 태스크가 체크포인트에서
+    결과를 폐기하고 제출 시점에 차감했던 일일 생성 횟수(ImgGenLog)를 환불한다.
+    이미 SUCCEEDED/CONSUMED/FAILED 면 취소 불가(409).
+    """
+
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request: Request, job_id: uuid.UUID) -> Response:
+        try:
+            job = CharacterGenerationJob.objects.get(job_id=job_id, user=request.user)
+        except CharacterGenerationJob.DoesNotExist:
+            return Response({"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
+
+        if job.status not in (
+            CharacterGenerationJob.Status.QUEUED,
+            CharacterGenerationJob.Status.IN_PROGRESS,
+        ):
+            return Response(
+                {"error": "JOB_NOT_CANCELABLE"}, status=status.HTTP_409_CONFLICT
+            )
+
+        job.status = CharacterGenerationJob.Status.FAILED
+        job.save(update_fields=["status", "updated_at"])
+        return Response({"job_id": job.job_id, "status": job.status})
+
+
 class GenerationQuotaView(APIView):
     """오늘의 캐릭터 생성 횟수(used)와 일일 한도(limit)를 반환한다."""
 

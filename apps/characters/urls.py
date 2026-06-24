@@ -3,6 +3,7 @@ from django.urls import path
 from apps.characters.views import (
     CharacterDetailView,
     CharacterListView,
+    GenerationJobCancelView,
     GenerationJobCreateView,
     GenerationJobDetailView,
     GenerationQuotaView,
@@ -21,6 +22,11 @@ urlpatterns = [
         "generation-jobs/quota/",
         GenerationQuotaView.as_view(),
         name="generation-quota",
+    ),
+    path(
+        "generation-jobs/<uuid:job_id>/cancel/",
+        GenerationJobCancelView.as_view(),
+        name="generation-job-cancel",
     ),
     path(
         "generation-jobs/<uuid:job_id>/",
