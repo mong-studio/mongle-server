@@ -1,16 +1,34 @@
 import logging
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.posts.models import Post
+from apps.posts.models import Comment, Post
 from apps.posts.serializers import CommentSerializer, PostSerializer
 from apps.posts.tasks import generate_character_reply
+from apps.users.api_errors import error_response
+from apps.users.models import TokenTransaction, User
 
 logger = logging.getLogger(__name__)
+
+# 댓글 작성 정책: 하루 5개까지, 1개당 토큰 3개 소모.
+DAILY_COMMENT_LIMIT = 5
+COMMENT_TOKEN_COST = 3
+
+
+def _today_start():
+    """오늘 0시(서버 로컬타임)의 aware datetime."""
+    return timezone.make_aware(
+        timezone.datetime.combine(timezone.localdate(), timezone.datetime.min.time())
+    )
+
+
+def _daily_comment_count(user) -> int:
+    return Comment.objects.filter(user=user, created_at__gte=_today_start()).count()
 
 
 _POST_QUERYSET = Post.objects.select_related("character").prefetch_related(
@@ -37,6 +55,11 @@ class PostDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return _POST_QUERYSET.filter(character__user=self.request.user)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["daily_comment_count"] = _daily_comment_count(self.request.user)
+        return context
+
 
 class CommentCreateView(APIView):
     permission_classes = (IsAuthenticated,)
@@ -49,7 +72,27 @@ class CommentCreateView(APIView):
 
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        comment = serializer.save(post=post, user=request.user)
+
+        with transaction.atomic():
+            # 동시성 방지
+            user = User.objects.select_for_update().get(pk=request.user.pk)
+
+            if _daily_comment_count(user) >= DAILY_COMMENT_LIMIT:
+                return error_response(429, "DAILY_COMMENT_LIMIT_EXCEEDED")
+
+            if user.token_balance < COMMENT_TOKEN_COST:
+                return error_response(402, "INSUFFICIENT_TOKEN_BALANCE")
+
+            comment = serializer.save(post=post, user=user)
+
+            user.token_balance -= COMMENT_TOKEN_COST
+            user.save(update_fields=["token_balance", "updated_at"])
+            TokenTransaction.objects.create(
+                user=user,
+                amount=-COMMENT_TOKEN_COST,
+                type="comment_create",
+                reference_id=str(comment.comment_id),
+            )
 
         comment_id = str(comment.comment_id)
 

@@ -46,6 +46,7 @@ class Comment(models.Model):
 
     class Meta:
         db_table = "comments"
+        ordering = ("created_at",)
 
 
 class Reply(models.Model):
@@ -65,3 +66,4 @@ class Reply(models.Model):
 
     class Meta:
         db_table = "replies"
+        ordering = ("created_at",)
