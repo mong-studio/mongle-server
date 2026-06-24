@@ -94,22 +94,23 @@ class CommentCreateView(APIView):
                 reference_id=str(comment.comment_id),
             )
 
-        comment_id = str(comment.comment_id)
+            # 커밋이 확정된 뒤에만 답글 생성을 예약한다(롤백 시 예약 안 함).
+            comment_id = str(comment.comment_id)
 
-        def _schedule_reply() -> None:
-            try:
-                generate_character_reply.apply_async(
-                    args=[comment_id],
-                    countdown=600,  # 10분 후 실행
-                )
-            except Exception as e:
-                logger.warning(
-                    "답글 예약 실패 (브로커 장애): comment_id=%s, error=%s",
-                    comment_id,
-                    e,
-                )
+            def _schedule_reply() -> None:
+                try:
+                    generate_character_reply.apply_async(
+                        args=[comment_id],
+                        countdown=600,  # 10분 후 실행
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "답글 예약 실패 (브로커 장애): comment_id=%s, error=%s",
+                        comment_id,
+                        e,
+                    )
 
-        transaction.on_commit(_schedule_reply)
+            transaction.on_commit(_schedule_reply)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
