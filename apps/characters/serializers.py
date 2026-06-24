@@ -78,6 +78,7 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
     origin_img_url = serializers.SerializerMethodField()
     gen_img_url = serializers.SerializerMethodField()
     active_quests = serializers.SerializerMethodField()
+    feed_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Character
@@ -90,6 +91,7 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "active_quests",
+            "feed_count",
         )
         read_only_fields = fields
 
@@ -123,6 +125,10 @@ class CharacterDetailSerializer(serializers.ModelSerializer):
             .order_by("-created_at")
         )
         return ActiveQuestSerializer(active_quests, many=True).data
+
+    def get_feed_count(self, obj: Character) -> int:
+        """캐릭터가 함께한 피드(Post) 수. posts 는 Post.character 의 related_name."""
+        return obj.posts.count()
 
 
 class CharacterRegisterSerializer(serializers.Serializer):
