@@ -24,6 +24,7 @@ from apps.users.refresh_token_service import (
     validate_refresh_token,
 )
 from apps.users.serializers import UserSerializer, UserUpdateSerializer
+from apps.users.services import withdraw_user
 from apps.users.validators import (
     collect_validated_fields,
     validate_email,
@@ -238,4 +239,29 @@ class ChangePasswordView(APIView):
             persistent=persistent,
         )
         set_refresh_cookie(response, new_raw, persistent=persistent)
+        return response
+
+
+class WithdrawView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request: Request) -> HttpResponseBase:
+        # 이메일 가입자는 현재 비밀번호 확인, 소셜 가입자는 비번 없이 진행한다.
+        if request.user.login_type == User.LoginType.EMAIL:  # type: ignore[union-attr]
+            if not isinstance(request.data, dict):
+                return error_response(400, "VALIDATION_ERROR")
+            password = request.data.get("password")
+            if not isinstance(password, str) or not password:
+                return validation_error_response(
+                    ValidationError({"password": ["현재 비밀번호를 입력해 주세요."]})
+                )
+            if not request.user.check_password(password):  # type: ignore[union-attr]
+                return error_response(400, "INVALID_CURRENT_PASSWORD")
+
+        # 전 기기의 자동로그인 토큰을 무효화하고 개인정보를 익명화·비활성화한다.
+        revoke_all_user_tokens(request.user)
+        withdraw_user(request.user)  # type: ignore[arg-type]
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        clear_refresh_cookie(response)
         return response

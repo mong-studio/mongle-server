@@ -7,6 +7,7 @@ from apps.users.views import (
     LogoutView,
     MeView,
     RefreshView,
+    WithdrawView,
 )
 
 urlpatterns = [
@@ -15,6 +16,7 @@ urlpatterns = [
     path("token/refresh", RefreshView.as_view(), name="auth-token-refresh"),
     path("logout", LogoutView.as_view(), name="auth-logout"),
     path("change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
+    path("withdraw", WithdrawView.as_view(), name="auth-withdraw"),
     path("social/kakao", KakaoLoginView.as_view(), name="auth-social-kakao"),
     path(
         "social/kakao/complete",
