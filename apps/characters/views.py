@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from urllib.parse import urlparse
 import uuid
 
@@ -34,28 +34,6 @@ from common.pagination import paginate_queryset
 MAX_ACTIVE_CHARACTERS = 10
 MAX_DAILY_GEN = 3
 PRESIGNED_URL_EXPIRY_SECONDS = 600
-PERSONALITY_KEYWORD_ALIASES = {
-    "호기심 많은": "호기심많은",
-}
-
-
-def _generation_window(user) -> tuple[int, datetime | None, int | None]:
-    now = timezone.now()
-    window_start = now - timedelta(hours=24)
-    logs = list(
-        ImgGenLog.objects.filter(user=user, created_at__gte=window_start).order_by(
-            "created_at"
-        )
-    )
-    reset_at = logs[0].created_at + timedelta(hours=24) if logs else None
-    retry_after_seconds = (
-        max(0, int((reset_at - now).total_seconds())) if reset_at else None
-    )
-    return len(logs), reset_at, retry_after_seconds
-
-
-def _normalize_personality_keywords(keywords: list[str]) -> list[str]:
-    return [PERSONALITY_KEYWORD_ALIASES.get(keyword, keyword) for keyword in keywords]
 
 
 def _extract_object_key(url: str) -> str:
@@ -166,14 +144,17 @@ class GenerationJobCreateView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        generation_count, reset_at, retry_after_seconds = _generation_window(user)
-        if generation_count >= MAX_DAILY_GEN:
+        today_start = timezone.make_aware(
+            timezone.datetime.combine(
+                timezone.localdate(), timezone.datetime.min.time()
+            )
+        )
+        daily_count = ImgGenLog.objects.filter(
+            user=user, created_at__gte=today_start
+        ).count()
+        if daily_count >= MAX_DAILY_GEN:
             return Response(
-                {
-                    "error": "DAILY_GENERATION_LIMIT_EXCEEDED",
-                    "reset_at": reset_at.isoformat() if reset_at else None,
-                    "retry_after_seconds": retry_after_seconds,
-                },
+                {"error": "DAILY_GENERATION_LIMIT_EXCEEDED"},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
@@ -208,14 +189,12 @@ class GenerationJobCreateView(APIView):
         job = CharacterGenerationJob.objects.create(
             user=user,
             source_image=source_image,
-            personality_keywords=_normalize_personality_keywords(
-                data["personality_keywords"]
-            ),
+            personality_keywords=data["personality_keywords"],
             custom_prompt=data.get("custom_prompt", ""),
             status=CharacterGenerationJob.Status.QUEUED,
         )
 
-        img_gen_log = ImgGenLog.objects.create(user=user, gen_cnt=generation_count + 1)
+        img_gen_log = ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
 
         process_character_generation_job.delay(
             str(job.job_id),
@@ -282,14 +261,16 @@ class GenerationJobCancelView(APIView):
 
             job.status = CharacterGenerationJob.Status.FAILED
             job.save(update_fields=["status", "updated_at"])
-            # 제출 시 차감한 최근 24시간 생성 횟수를 즉시 환불한다.
-            # ImgGenLog 행은 카운터라 특정 행 식별 없이 최근 1행을 지운다.
-            # 잡 상태 전환이 잡당 1회 가드라 워커 유실·저장 레이스에도 안전.
-            window_start = timezone.now() - timedelta(hours=24)
-            refund_id = (
-                ImgGenLog.objects.filter(
-                    user=request.user, created_at__gte=window_start
+            # 제출 시 차감한 일일 생성 횟수를 즉시 환불한다. ImgGenLog 행은 카운터라
+            # 특정 행을 식별할 필요 없이 오늘자 1행을 지운다(잡 상태 전환이 잡당 1회
+            # 가드). 태스크 체크포인트에 의존하지 않아 워커 유실·저장 레이스에도 안전.
+            today_start = timezone.make_aware(
+                timezone.datetime.combine(
+                    timezone.localdate(), timezone.datetime.min.time()
                 )
+            )
+            refund_id = (
+                ImgGenLog.objects.filter(user=request.user, created_at__gte=today_start)
                 .order_by("-created_at")
                 .values_list("pk", flat=True)
                 .first()
@@ -301,20 +282,20 @@ class GenerationJobCancelView(APIView):
 
 
 class GenerationQuotaView(APIView):
-    """최근 24시간 캐릭터 생성 횟수(used)와 한도(limit)를 반환한다."""
+    """오늘의 캐릭터 생성 횟수(used)와 일일 한도(limit)를 반환한다."""
 
     permission_classes = (IsAuthenticated,)
 
     def get(self, request: Request) -> Response:
-        used, reset_at, retry_after_seconds = _generation_window(request.user)
-        return Response(
-            {
-                "used": used,
-                "limit": MAX_DAILY_GEN,
-                "reset_at": reset_at.isoformat() if reset_at else None,
-                "retry_after_seconds": retry_after_seconds,
-            }
+        today_start = timezone.make_aware(
+            timezone.datetime.combine(
+                timezone.localdate(), timezone.datetime.min.time()
+            )
         )
+        used = ImgGenLog.objects.filter(
+            user=request.user, created_at__gte=today_start
+        ).count()
+        return Response({"used": used, "limit": MAX_DAILY_GEN})
 
 
 class CharacterListView(APIView):
