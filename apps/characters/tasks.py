@@ -161,9 +161,9 @@ def process_character_generation_job(
     except CharacterGenerationJob.DoesNotExist:
         return
 
-    # 시작 전에 취소(FAILED)됐으면 처리하지 않고 환불 후 종료한다.
+    # 시작 전에 취소(FAILED)됐으면 처리하지 않고 종료한다.
+    # 환불(ImgGenLog 삭제)은 취소 뷰가 이미 처리하므로 여기서 하지 않는다.
     if job.status == CharacterGenerationJob.Status.FAILED:
-        _refund_daily_gen(img_gen_log_id)
         return
 
     job.status = CharacterGenerationJob.Status.IN_PROGRESS
@@ -222,12 +222,11 @@ def process_character_generation_job(
             elapsed_seconds=round(time.monotonic() - started, 2),
         )
 
-        # 저장은 잡 행을 잠그고 상태를 재확인한 뒤 수행한다. 취소 뷰의 환불과
-        # 직렬화돼, 폴링 직후~저장 사이에 취소가 들어와도 결과를 폐기하고 환불한다.
+        # 저장은 잡 행을 잠그고 상태를 재확인한 뒤 수행한다. 취소 뷰와 직렬화돼,
+        # 폴링 직후~저장 사이에 취소가 들어오면 결과를 폐기한다(환불은 취소 뷰가 함).
         with transaction.atomic():
             locked = CharacterGenerationJob.objects.select_for_update().get(pk=job_id)
             if locked.status == CharacterGenerationJob.Status.FAILED:
-                _refund_daily_gen(img_gen_log_id)
                 return
 
             locked.gen_img_url = result.get("image_url", "")
@@ -248,7 +247,13 @@ def process_character_generation_job(
 
     except Exception:
         logger.exception("character generation job failed: job_id=%s", job_id)
-        job.status = CharacterGenerationJob.Status.FAILED
-        job.save(update_fields=["status", "updated_at"])
-        # 생성 실패 시 제출 시점에 차감했던 일일 생성 횟수를 환불한다(해당 로그만 삭제).
-        _refund_daily_gen(img_gen_log_id)
+        # 이미 사용자가 취소(FAILED)했으면 취소 뷰가 환불했으므로 중복 환불하지 않는다.
+        with transaction.atomic():
+            locked = CharacterGenerationJob.objects.select_for_update().get(pk=job_id)
+            was_cancelled = locked.status == CharacterGenerationJob.Status.FAILED
+            if not was_cancelled:
+                locked.status = CharacterGenerationJob.Status.FAILED
+                locked.save(update_fields=["status", "updated_at"])
+        if not was_cancelled:
+            # 생성 실패 시 제출 시점에 차감했던 일일 생성 횟수를 환불한다.
+            _refund_daily_gen(img_gen_log_id)

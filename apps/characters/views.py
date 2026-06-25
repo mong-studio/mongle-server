@@ -195,9 +195,6 @@ class GenerationJobCreateView(APIView):
         )
 
         img_gen_log = ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
-        # 취소 시 취소 뷰가 직접 환불할 수 있도록 차감한 로그 id 를 잡에 연결한다.
-        job.img_gen_log_id = img_gen_log.img_gen_log_id
-        job.save(update_fields=["img_gen_log_id", "updated_at"])
 
         process_character_generation_job.delay(
             str(job.job_id),
@@ -264,10 +261,22 @@ class GenerationJobCancelView(APIView):
 
             job.status = CharacterGenerationJob.Status.FAILED
             job.save(update_fields=["status", "updated_at"])
-            # 제출 시 차감한 일일 생성 횟수를 즉시 환불한다(태스크 체크포인트에 의존하지
-            # 않으므로 워커 유실·저장 구간 레이스에서도 횟수가 남지 않는다).
-            if job.img_gen_log_id is not None:
-                ImgGenLog.objects.filter(pk=job.img_gen_log_id).delete()
+            # 제출 시 차감한 일일 생성 횟수를 즉시 환불한다. ImgGenLog 행은 카운터라
+            # 특정 행을 식별할 필요 없이 오늘자 1행을 지운다(잡 상태 전환이 잡당 1회
+            # 가드). 태스크 체크포인트에 의존하지 않아 워커 유실·저장 레이스에도 안전.
+            today_start = timezone.make_aware(
+                timezone.datetime.combine(
+                    timezone.localdate(), timezone.datetime.min.time()
+                )
+            )
+            refund_id = (
+                ImgGenLog.objects.filter(user=request.user, created_at__gte=today_start)
+                .order_by("-created_at")
+                .values_list("pk", flat=True)
+                .first()
+            )
+            if refund_id is not None:
+                ImgGenLog.objects.filter(pk=refund_id).delete()
 
         return Response({"job_id": job.job_id, "status": job.status})
 
