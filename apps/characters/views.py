@@ -4,6 +4,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 import uuid
 
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
@@ -194,6 +195,9 @@ class GenerationJobCreateView(APIView):
         )
 
         img_gen_log = ImgGenLog.objects.create(user=user, gen_cnt=daily_count + 1)
+        # 취소 시 취소 뷰가 직접 환불할 수 있도록 차감한 로그 id 를 잡에 연결한다.
+        job.img_gen_log_id = img_gen_log.img_gen_log_id
+        job.save(update_fields=["img_gen_log_id", "updated_at"])
 
         process_character_generation_job.delay(
             str(job.job_id),
@@ -238,21 +242,33 @@ class GenerationJobCancelView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request: Request, job_id: uuid.UUID) -> Response:
-        try:
-            job = CharacterGenerationJob.objects.get(job_id=job_id, user=request.user)
-        except CharacterGenerationJob.DoesNotExist:
-            return Response({"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
+        # 잡 행을 잠그고 상태 전환 + 환불을 원자적으로 처리한다. 실행 중인 태스크의
+        # 성공 저장(select_for_update)과 직렬화돼 취소-환불/성공-유지 중 하나만 이긴다.
+        with transaction.atomic():
+            try:
+                job = CharacterGenerationJob.objects.select_for_update().get(
+                    job_id=job_id, user=request.user
+                )
+            except CharacterGenerationJob.DoesNotExist:
+                return Response(
+                    {"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND
+                )
 
-        if job.status not in (
-            CharacterGenerationJob.Status.QUEUED,
-            CharacterGenerationJob.Status.IN_PROGRESS,
-        ):
-            return Response(
-                {"error": "JOB_NOT_CANCELABLE"}, status=status.HTTP_409_CONFLICT
-            )
+            if job.status not in (
+                CharacterGenerationJob.Status.QUEUED,
+                CharacterGenerationJob.Status.IN_PROGRESS,
+            ):
+                return Response(
+                    {"error": "JOB_NOT_CANCELABLE"}, status=status.HTTP_409_CONFLICT
+                )
 
-        job.status = CharacterGenerationJob.Status.FAILED
-        job.save(update_fields=["status", "updated_at"])
+            job.status = CharacterGenerationJob.Status.FAILED
+            job.save(update_fields=["status", "updated_at"])
+            # 제출 시 차감한 일일 생성 횟수를 즉시 환불한다(태스크 체크포인트에 의존하지
+            # 않으므로 워커 유실·저장 구간 레이스에서도 횟수가 남지 않는다).
+            if job.img_gen_log_id is not None:
+                ImgGenLog.objects.filter(pk=job.img_gen_log_id).delete()
+
         return Response({"job_id": job.job_id, "status": job.status})
 
 

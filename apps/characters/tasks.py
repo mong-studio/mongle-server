@@ -4,6 +4,7 @@ import datetime
 import logging
 import time
 
+from django.db import transaction
 from django.utils import timezone
 import httpx
 
@@ -209,12 +210,6 @@ def process_character_generation_job(
             base_url=base_url, ai_job_id=ai_job_id, headers=headers
         )
 
-        # 생성 도중 사용자가 취소(FAILED)했으면 결과를 폐기하고 환불 후 종료한다.
-        job.refresh_from_db(fields=["status"])
-        if job.status == CharacterGenerationJob.Status.FAILED:
-            _refund_daily_gen(img_gen_log_id)
-            return
-
         # compose 단계에서 버려지는 구조화 데이터(유저 원본 입력 + LLM raw 출력)를
         # 감사 로그로 S3 에 보존한다. best-effort — 실패해도 생성 잡은 계속 진행한다.
         _save_generation_audit_log(
@@ -227,21 +222,29 @@ def process_character_generation_job(
             elapsed_seconds=round(time.monotonic() - started, 2),
         )
 
-        job.gen_img_url = result.get("image_url", "")
-        job.gen_img_object_key = result.get("gen_img_object_key", "")
-        job.appearance = result.get("appearance", "")
-        job.persona = _compose_persona(result)
-        job.status = CharacterGenerationJob.Status.SUCCEEDED
-        job.save(
-            update_fields=[
-                "gen_img_url",
-                "gen_img_object_key",
-                "appearance",
-                "persona",
-                "status",
-                "updated_at",
-            ]
-        )
+        # 저장은 잡 행을 잠그고 상태를 재확인한 뒤 수행한다. 취소 뷰의 환불과
+        # 직렬화돼, 폴링 직후~저장 사이에 취소가 들어와도 결과를 폐기하고 환불한다.
+        with transaction.atomic():
+            locked = CharacterGenerationJob.objects.select_for_update().get(pk=job_id)
+            if locked.status == CharacterGenerationJob.Status.FAILED:
+                _refund_daily_gen(img_gen_log_id)
+                return
+
+            locked.gen_img_url = result.get("image_url", "")
+            locked.gen_img_object_key = result.get("gen_img_object_key", "")
+            locked.appearance = result.get("appearance", "")
+            locked.persona = _compose_persona(result)
+            locked.status = CharacterGenerationJob.Status.SUCCEEDED
+            locked.save(
+                update_fields=[
+                    "gen_img_url",
+                    "gen_img_object_key",
+                    "appearance",
+                    "persona",
+                    "status",
+                    "updated_at",
+                ]
+            )
 
     except Exception:
         logger.exception("character generation job failed: job_id=%s", job_id)

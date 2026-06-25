@@ -232,6 +232,62 @@ def test_generation_quota_unauthenticated() -> None:
     assert response.status_code == 401
 
 
+def _create_generation_job(auth_client: APIClient) -> str:
+    """생성 잡을 만들고(태스크 실행은 막음) job_id 를 반환한다."""
+    with patch("apps.characters.tasks.process_character_generation_job.delay"):
+        response = auth_client.post(
+            "/api/v1/characters/generation-jobs/",
+            {"name": "몽글", "persona": "착한 곰", "personality_keywords": ["활발한"]},
+            format="json",
+        )
+    assert response.status_code == 202
+    return str(response.json()["job_id"])
+
+
+def _used(auth_client: APIClient) -> int:
+    return int(
+        auth_client.get("/api/v1/characters/generation-jobs/quota/").json()["used"]
+    )
+
+
+# 생성 중 취소하면 차감했던 일일 생성 횟수가 환불(ImgGenLog 삭제)되는지 확인
+@pytest.mark.django_db
+def test_cancel_refunds_daily_generation_count(
+    auth_client: APIClient, user: User
+) -> None:
+    from apps.characters.models import ImgGenLog
+
+    job_id = _create_generation_job(auth_client)
+    assert _used(auth_client) == 1  # 제출 시 1회 차감
+
+    cancel = auth_client.post(f"/api/v1/characters/generation-jobs/{job_id}/cancel/")
+
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "FAILED"
+    assert _used(auth_client) == 0  # 환불되어 0
+    assert ImgGenLog.objects.filter(user=user).count() == 0
+
+
+# 이미 완료(SUCCEEDED)된 잡은 취소 불가(409)이고 횟수도 유지되는지 확인
+@pytest.mark.django_db
+def test_cancel_rejected_and_count_kept_when_succeeded(
+    auth_client: APIClient, user: User
+) -> None:
+    from apps.characters.models import ImgGenLog
+
+    job_id = _create_generation_job(auth_client)
+    job = CharacterGenerationJob.objects.get(job_id=job_id)
+    job.status = CharacterGenerationJob.Status.SUCCEEDED
+    job.save(update_fields=["status"])
+
+    cancel = auth_client.post(f"/api/v1/characters/generation-jobs/{job_id}/cancel/")
+
+    assert cancel.status_code == 409
+    # 캐릭터가 만들어진 잡이므로 횟수는 유지되어야 한다.
+    assert _used(auth_client) == 1
+    assert ImgGenLog.objects.filter(user=user).count() == 1
+
+
 # 이미 활성 캐릭터가 10개인 경우 422 응답 확인 (캐릭터 최대 보유 수 초과)
 @pytest.mark.django_db
 def test_generation_job_create_character_limit_exceeded(

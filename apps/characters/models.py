@@ -61,6 +61,8 @@ class CharacterGenerationJob(models.Model):
     persona = models.TextField(blank=True)
     # AI 생성 외형 묘사. 확정 등록(CHAR-004) 시 Character.visual 로 옮긴다.
     appearance = models.CharField(max_length=255, blank=True)
+    # 제출 시 차감한 일일 생성 횟수(ImgGenLog) 의 id. 취소 시 이 행을 삭제해 환불한다.
+    img_gen_log_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
