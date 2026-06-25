@@ -4,6 +4,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 import uuid
 
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
@@ -238,21 +239,45 @@ class GenerationJobCancelView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request: Request, job_id: uuid.UUID) -> Response:
-        try:
-            job = CharacterGenerationJob.objects.get(job_id=job_id, user=request.user)
-        except CharacterGenerationJob.DoesNotExist:
-            return Response({"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
+        # 잡 행을 잠그고 상태 전환 + 환불을 원자적으로 처리한다. 실행 중인 태스크의
+        # 성공 저장(select_for_update)과 직렬화돼 취소-환불/성공-유지 중 하나만 이긴다.
+        with transaction.atomic():
+            try:
+                job = CharacterGenerationJob.objects.select_for_update().get(
+                    job_id=job_id, user=request.user
+                )
+            except CharacterGenerationJob.DoesNotExist:
+                return Response(
+                    {"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND
+                )
 
-        if job.status not in (
-            CharacterGenerationJob.Status.QUEUED,
-            CharacterGenerationJob.Status.IN_PROGRESS,
-        ):
-            return Response(
-                {"error": "JOB_NOT_CANCELABLE"}, status=status.HTTP_409_CONFLICT
+            if job.status not in (
+                CharacterGenerationJob.Status.QUEUED,
+                CharacterGenerationJob.Status.IN_PROGRESS,
+            ):
+                return Response(
+                    {"error": "JOB_NOT_CANCELABLE"}, status=status.HTTP_409_CONFLICT
+                )
+
+            job.status = CharacterGenerationJob.Status.FAILED
+            job.save(update_fields=["status", "updated_at"])
+            # 제출 시 차감한 일일 생성 횟수를 즉시 환불한다. ImgGenLog 행은 카운터라
+            # 특정 행을 식별할 필요 없이 오늘자 1행을 지운다(잡 상태 전환이 잡당 1회
+            # 가드). 태스크 체크포인트에 의존하지 않아 워커 유실·저장 레이스에도 안전.
+            today_start = timezone.make_aware(
+                timezone.datetime.combine(
+                    timezone.localdate(), timezone.datetime.min.time()
+                )
             )
+            refund_id = (
+                ImgGenLog.objects.filter(user=request.user, created_at__gte=today_start)
+                .order_by("-created_at")
+                .values_list("pk", flat=True)
+                .first()
+            )
+            if refund_id is not None:
+                ImgGenLog.objects.filter(pk=refund_id).delete()
 
-        job.status = CharacterGenerationJob.Status.FAILED
-        job.save(update_fields=["status", "updated_at"])
         return Response({"job_id": job.job_id, "status": job.status})
 
 
