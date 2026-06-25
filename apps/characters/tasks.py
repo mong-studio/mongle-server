@@ -126,16 +126,13 @@ def _poll_character_result(
 @shared_task
 def reset_image_gen_count() -> None:
     """
-    [스케줄] 매일 자정 실행
-    오늘 이전 날짜의 이미지 재생성 이력(ImgGenLog)을 삭제하여
-    카운트를 초기화한다. 계정당 하루 3회 제한이며 다음날 다시 가능해진다.
+    [스케줄] 오래된 이미지 생성 이력(ImgGenLog)을 삭제한다.
+    계정당 최근 24시간 3회 제한이므로 윈도우 밖 로그는 카운트에 필요 없다.
     """
     from apps.characters.models import ImgGenLog
 
-    today_start = timezone.make_aware(
-        datetime.datetime.combine(timezone.localdate(), datetime.time.min)
-    )
-    ImgGenLog.objects.filter(created_at__lt=today_start).delete()
+    window_start = timezone.now() - datetime.timedelta(hours=24)
+    ImgGenLog.objects.filter(created_at__lt=window_start).delete()
 
 
 def _refund_daily_gen(img_gen_log_id: int | None) -> None:

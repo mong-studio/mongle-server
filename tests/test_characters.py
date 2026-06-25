@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -190,15 +190,42 @@ def test_generation_job_create_success(auth_client: APIClient) -> None:
     assert "job_id" in data
 
 
-# 오늘 이미 3회 생성한 경우 429 응답 확인 (일일 생성 한도 초과)
+@pytest.mark.django_db
+def test_generation_job_normalizes_personality_keyword_alias(
+    auth_client: APIClient,
+) -> None:
+    with patch("apps.characters.tasks.process_character_generation_job.delay"):
+        response = auth_client.post(
+            "/api/v1/characters/generation-jobs/",
+            {
+                "name": "몽글",
+                "persona": "궁금한 게 많은 곰",
+                "personality_keywords": ["호기심 많은"],
+            },
+            format="json",
+        )
+
+    assert response.status_code == 202
+    job = CharacterGenerationJob.objects.get(job_id=response.json()["job_id"])
+    assert job.personality_keywords == ["호기심많은"]
+
+
+# 최근 24시간 안에 이미 3회 생성한 경우 429 응답 확인
 @pytest.mark.django_db
 def test_generation_job_create_daily_limit_exceeded(
     auth_client: APIClient, user: User
 ) -> None:
     from apps.characters.models import ImgGenLog
 
-    for i in range(3):
-        ImgGenLog.objects.create(user=user, gen_cnt=i + 1)
+    now = timezone.now()
+    created_at_values = [
+        now - timedelta(hours=3),
+        now - timedelta(hours=2),
+        now - timedelta(hours=1),
+    ]
+    for i, created_at in enumerate(created_at_values):
+        log = ImgGenLog.objects.create(user=user, gen_cnt=i + 1)
+        ImgGenLog.objects.filter(pk=log.pk).update(created_at=created_at)
 
     with patch("apps.characters.tasks.process_character_generation_job.delay"):
         response = auth_client.post(
@@ -207,22 +234,35 @@ def test_generation_job_create_daily_limit_exceeded(
             format="json",
         )
     assert response.status_code == 429
+    data = response.json()
+    assert data["error"] == "DAILY_GENERATION_LIMIT_EXCEEDED"
+    assert "reset_at" in data
+    assert isinstance(data["retry_after_seconds"], int)
+    assert 20 * 60 * 60 < data["retry_after_seconds"] <= 21 * 60 * 60
 
 
-# 생성 횟수 조회 시 오늘의 used 와 일일 limit 을 반환하는지 확인
+# 생성 횟수 조회 시 최근 24시간의 used 와 limit 을 반환하는지 확인
 @pytest.mark.django_db
 def test_generation_quota_returns_used_and_limit(
     auth_client: APIClient, user: User
 ) -> None:
     from apps.characters.models import ImgGenLog
 
-    ImgGenLog.objects.create(user=user, gen_cnt=1)
+    old_log = ImgGenLog.objects.create(user=user, gen_cnt=1)
+    ImgGenLog.objects.filter(pk=old_log.pk).update(
+        created_at=timezone.now() - timedelta(hours=25)
+    )
     ImgGenLog.objects.create(user=user, gen_cnt=2)
+    ImgGenLog.objects.create(user=user, gen_cnt=3)
 
     response = auth_client.get("/api/v1/characters/generation-jobs/quota/")
 
     assert response.status_code == 200
-    assert response.json() == {"used": 2, "limit": 3}
+    data = response.json()
+    assert data["used"] == 2
+    assert data["limit"] == 3
+    assert "reset_at" in data
+    assert isinstance(data["retry_after_seconds"], int)
 
 
 # 비로그인 상태에서 생성 횟수 조회 시 401 반환 확인
