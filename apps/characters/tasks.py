@@ -137,6 +137,15 @@ def reset_image_gen_count() -> None:
     ImgGenLog.objects.filter(created_at__lt=today_start).delete()
 
 
+def _refund_daily_gen(img_gen_log_id: int | None) -> None:
+    """제출 시점에 차감했던 일일 생성 횟수를 환불한다(해당 ImgGenLog 만 삭제)."""
+    if img_gen_log_id is None:
+        return
+    from apps.characters.models import ImgGenLog
+
+    ImgGenLog.objects.filter(pk=img_gen_log_id).delete()
+
+
 @shared_task(bind=True, max_retries=3)
 def process_character_generation_job(
     self, job_id: str, name: str, persona: str, img_gen_log_id: int | None = None
@@ -149,6 +158,11 @@ def process_character_generation_job(
     try:
         job = CharacterGenerationJob.objects.get(pk=job_id)
     except CharacterGenerationJob.DoesNotExist:
+        return
+
+    # 시작 전에 취소(FAILED)됐으면 처리하지 않고 환불 후 종료한다.
+    if job.status == CharacterGenerationJob.Status.FAILED:
+        _refund_daily_gen(img_gen_log_id)
         return
 
     job.status = CharacterGenerationJob.Status.IN_PROGRESS
@@ -195,6 +209,12 @@ def process_character_generation_job(
             base_url=base_url, ai_job_id=ai_job_id, headers=headers
         )
 
+        # 생성 도중 사용자가 취소(FAILED)했으면 결과를 폐기하고 환불 후 종료한다.
+        job.refresh_from_db(fields=["status"])
+        if job.status == CharacterGenerationJob.Status.FAILED:
+            _refund_daily_gen(img_gen_log_id)
+            return
+
         # compose 단계에서 버려지는 구조화 데이터(유저 원본 입력 + LLM raw 출력)를
         # 감사 로그로 S3 에 보존한다. best-effort — 실패해도 생성 잡은 계속 진행한다.
         _save_generation_audit_log(
@@ -228,7 +248,4 @@ def process_character_generation_job(
         job.status = CharacterGenerationJob.Status.FAILED
         job.save(update_fields=["status", "updated_at"])
         # 생성 실패 시 제출 시점에 차감했던 일일 생성 횟수를 환불한다(해당 로그만 삭제).
-        if img_gen_log_id is not None:
-            from apps.characters.models import ImgGenLog
-
-            ImgGenLog.objects.filter(pk=img_gen_log_id).delete()
+        _refund_daily_gen(img_gen_log_id)
