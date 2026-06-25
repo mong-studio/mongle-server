@@ -135,3 +135,21 @@ def check_object_exists(object_key: str) -> bool:
         return False
     else:
         return True
+
+
+def delete_object(object_key: str) -> bool:
+    """S3 오브젝트를 삭제한다(best-effort). 성공이면 True, 실패면 False.
+
+    회원 탈퇴 시 원본 사진처럼 개인정보 객체를 제거하는 데 쓴다.
+    object_key 가 비어 있으면 아무 것도 하지 않고 True 를 반환한다.
+    """
+    if not object_key:
+        return True
+    _ensure_storage_configured()
+    client = get_s3_client()
+    try:
+        client.delete_object(Bucket=settings.AWS_S3_BUCKET, Key=object_key)
+    except Exception:
+        return False
+    else:
+        return True
