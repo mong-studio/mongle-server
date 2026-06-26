@@ -145,9 +145,11 @@ def delete_object(object_key: str) -> bool:
     """
     if not object_key:
         return True
-    _ensure_storage_configured()
-    client = get_s3_client()
+    # 설정 미비(StorageNotConfiguredError)·클라이언트 생성 실패까지 모두 흡수해
+    # 탈퇴 흐름이 S3 문제로 깨지지 않게 한다(best-effort).
     try:
+        _ensure_storage_configured()
+        client = get_s3_client()
         client.delete_object(Bucket=settings.AWS_S3_BUCKET, Key=object_key)
     except Exception:
         return False

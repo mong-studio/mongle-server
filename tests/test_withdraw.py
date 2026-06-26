@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 import pytest
 from rest_framework.test import APIClient
@@ -125,3 +126,24 @@ def test_withdraw_blocks_authentication_afterward(
 
     # is_active=False 라 같은 토큰으로 더 이상 인증되지 않는다.
     assert auth_client.get("/api/v1/auth/me/").status_code == 401
+
+
+@override_settings(AWS_S3_BUCKET="")
+@pytest.mark.django_db
+def test_withdraw_succeeds_when_s3_unconfigured_with_images(
+    auth_client: APIClient, user: User
+) -> None:
+    # 원본 이미지가 있어도 S3 미설정 환경에서 탈퇴가 500 없이 완료돼야 한다.
+    # (delete_object 를 mock 하지 않고 실제 best-effort 경로를 검증한다.)
+    _source_image(user, "orig-x.png")
+    Character.objects.create(
+        user=user, character_name="x", persona="p", origin_img_url="char-x.png"
+    )
+
+    response = auth_client.post(
+        WITHDRAW_URL, {"password": "password123"}, format="json"
+    )
+
+    assert response.status_code == 204
+    user.refresh_from_db()
+    assert user.is_active is False
