@@ -109,6 +109,36 @@ def test_post_detail_authenticated(auth_client: APIClient, post: Post) -> None:
     assert response.json()["content"] == "테스트 게시글"
 
 
+# 본인 게시글 삭제 성공 시 204 + 게시글·댓글이 함께 삭제(CASCADE)되는지 확인
+@pytest.mark.django_db
+def test_post_delete_authenticated(
+    auth_client: APIClient, user: User, post: Post
+) -> None:
+    comment = Comment.objects.create(post=post, user=user, content="댓글")
+
+    response = auth_client.delete(f"/api/v1/posts/{post.post_id}/")
+
+    assert response.status_code == 204
+    assert not Post.objects.filter(post_id=post.post_id).exists()
+    assert not Comment.objects.filter(pk=comment.pk).exists()  # CASCADE 로 함께 삭제
+
+
+# 다른 사용자의 게시글은 삭제할 수 없다(404, 게시글 유지)
+@pytest.mark.django_db
+def test_post_delete_other_user_forbidden(auth_client: APIClient) -> None:
+    other_post = _make_other_user_post()
+    response = auth_client.delete(f"/api/v1/posts/{other_post.post_id}/")
+    assert response.status_code == 404
+    assert Post.objects.filter(post_id=other_post.post_id).exists()
+
+
+# 비로그인 상태에서 삭제 시 401 반환 확인
+@pytest.mark.django_db
+def test_post_delete_unauthenticated(post: Post) -> None:
+    response = APIClient().delete(f"/api/v1/posts/{post.post_id}/")
+    assert response.status_code == 401
+
+
 # 이사한 캐릭터의 게시물/답글에도 캐릭터 이미지 URL이 포함되는지 확인
 @pytest.mark.django_db
 def test_post_detail_includes_inactive_character_images(
