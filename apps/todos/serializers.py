@@ -53,6 +53,12 @@ class TodoSerializer(serializers.ModelSerializer):
         }
 
 
+class TodoExtendRequestSerializer(serializers.Serializer):
+    """지난 미완료 TODO를 옮길 희망 날짜. 오늘 이후 여부는 뷰에서 검증한다."""
+
+    todo_date = serializers.DateField()
+
+
 class ScheduleSerializer(serializers.ModelSerializer):
     tag_id = serializers.PrimaryKeyRelatedField(
         source="tag",

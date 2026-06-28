@@ -5,6 +5,7 @@ from apps.todos.views import (
     TodoCompleteView,
     TodoConfirmView,
     TodoDetailView,
+    TodoExtendView,
     TodoFailView,
     TodoGenerateAIView,
     TodoListCreateView,
@@ -28,4 +29,5 @@ urlpatterns = [
     path("<uuid:todo_id>/", TodoDetailView.as_view(), name="todo-detail"),
     path("<uuid:todo_id>/complete/", TodoCompleteView.as_view(), name="todo-complete"),
     path("<uuid:todo_id>/fail/", TodoFailView.as_view(), name="todo-fail"),
+    path("<uuid:todo_id>/extend/", TodoExtendView.as_view(), name="todo-extend"),
 ]
