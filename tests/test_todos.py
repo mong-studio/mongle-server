@@ -212,12 +212,13 @@ def _past_todo(user: User, tag: Tag, *, status: str = Todo.Status.IN_PROGRESS) -
     )
 
 
-# 지난 미완료 TODO를 연장하면 날짜가 옮겨지고 토큰 4개가 차감된다
+# 지난 실패(FAILED) TODO 연장 — 날짜 이동 + 진행 중 복귀 + 토큰 4개 차감(실제 연장 대상 경로).
+#   자동 실패 배치든 사용자 포기든 지난 미완료는 모두 status=FAILED 이므로 이 경로가 핵심이다.
 @pytest.mark.django_db
-def test_todo_extend_moves_date_and_charges_token(
+def test_todo_extend_failed_todo_moves_revives_and_charges_token(
     auth_client: APIClient, user: User, tag: Tag
 ) -> None:
-    todo = _past_todo(user, tag)
+    todo = _past_todo(user, tag, status=Todo.Status.FAILED)
     starting_balance = user.token_balance  # 기본 5
     new_date = timezone.localdate() + timedelta(days=3)
 
@@ -244,12 +245,12 @@ def test_todo_extend_moves_date_and_charges_token(
     ).exists()
 
 
-# 포기(FAILED)했던 지난 TODO를 연장하면 다시 진행 중으로 되살아난다
+# 자정 배치 전 잔여 '지난 진행 중' TODO도 방어적으로 연장 가능하다(완료만 아니면 허용).
 @pytest.mark.django_db
-def test_todo_extend_revives_failed_todo(
+def test_todo_extend_in_progress_past_defensive(
     auth_client: APIClient, user: User, tag: Tag
 ) -> None:
-    todo = _past_todo(user, tag, status=Todo.Status.FAILED)
+    todo = _past_todo(user, tag)  # 기본 IN_PROGRESS
     new_date = timezone.localdate() + timedelta(days=1)
 
     response = auth_client.patch(
@@ -259,8 +260,8 @@ def test_todo_extend_revives_failed_todo(
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == Todo.Status.IN_PROGRESS
     todo.refresh_from_db()
+    assert todo.todo_date == new_date
     assert todo.status == Todo.Status.IN_PROGRESS
 
 
