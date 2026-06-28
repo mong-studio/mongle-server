@@ -201,7 +201,8 @@ sequenceDiagram
 3. `CharacterGenerationJob` 조회(`gen_job_id`, 본인 소유). 없으면 `404 JOB_NOT_FOUND`.
 4. `status==CONSUMED` → `409 JOB_ALREADY_CONSUMED` (한 잡은 한 번만 등록 가능).
 5. `status!=SUCCEEDED` → `400 JOB_NOT_SUCCEEDED`.
-6. `Character` 생성: `generation_job=job`, `character_name=name`, `gen_img_url=job.gen_img_url`, `persona=persona`, **`visual=job.custom_prompt`**(잡 생성 시 입력한 외형 묘사를 캐릭터로 보존).
+6. `Character` 생성: `generation_job=job`, `character_name=name`, `gen_img_url=job.gen_img_url`, `persona=job.persona`, `visual=job.appearance`, `appearance_payload=job.appearance_payload`.
+   - 생성 완료와 확정 등록은 서로 다른 시점이므로, 구조화 외형 데이터는 먼저 Job에 보관했다가 이 단계에서 Character로 복사한다.
 7. `job.status = CONSUMED`.
 8. `201` 응답 + (권장) `Location: /api/v1/characters/:id`.
 
@@ -243,8 +244,12 @@ sequenceDiagram
    - 헤더 `X-API-Key: <AI_SERVICE_TOKEN>` (⚠️ Bearer 아님)
    - Body `{user_id, name, persona, personality_keywords, source_image_url}`
    - `timeout = 120초`
-4. 응답 envelope에서 **`result`** 키 파싱(⚠️ `data` 아님): `result.image_url` → `job.gen_img_url`, `result.gen_img_object_key` → `job.gen_img_object_key`.
-5. `status = SUCCEEDED` 저장.
+4. 완료 응답 envelope에서 **`result`** 키 파싱(⚠️ `data` 아님):
+   - `result.image_url` → `job.gen_img_url`
+   - `result.gen_img_object_key` → `job.gen_img_object_key`
+   - `result.appearance` → `job.appearance`
+   - `result.appearance_payload` → `job.appearance_payload`
+5. `status = SUCCEEDED` 저장. 사용자가 나중에 확정 등록할 때 Job의 외형 데이터를 Character로 복사한다.
 6. 예외 발생 시 `status = FAILED`, `error_code/error_message` 저장.
 
 **mongle-ai 응답 예시**
@@ -257,13 +262,20 @@ sequenceDiagram
     "persona": "...",
     "personality": "...",
     "speech_style": "...",
-    "background": "..."
+    "background": "...",
+    "appearance": "round brown bear with a red ribbon",
+    "appearance_payload": {
+      "character_type": "bear",
+      "main_colors": ["brown"],
+      "accessories": ["red ribbon"]
+    }
   },
   "error": null
 }
 ```
 
 - ⚠️ 개인화 필드(`personality`/`speech_style`/`background`)는 현재 **저장하지 않는다**(향후 챗봇 메모리 기능에서 도입 예정).
+- `appearance_payload`는 프론트 표시용이 아니라 피드 이미지에서 동일 캐릭터를 재현하기 위한 내부 데이터다. 캐릭터 확정 후 `Character`에 보관하며, 이후 피드 생성 태스크가 `POST /v1/feed/generate`의 `character.appearance_payload`로 전달한다.
 - ⚠️ **운영 주의**: 콜드스타트 시 AI 응답이 `timeout(120초)`을 초과할 수 있다(RunPod LLM·이미지 워커 동시 cold). 첫 요청/유휴 후 첫 요청에서 `FAILED` 위험 → 워커 웜 유지 또는 timeout 상향 검토 필요.
 
 ---

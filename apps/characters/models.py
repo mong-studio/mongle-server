@@ -61,6 +61,8 @@ class CharacterGenerationJob(models.Model):
     persona = models.TextField(blank=True)
     # AI 생성 외형 묘사. 확정 등록(CHAR-004) 시 Character.visual 로 옮긴다.
     appearance = models.CharField(max_length=255, blank=True)
+    # 이미지 워커가 반환한 정규화 외형. 사용자가 나중에 캐릭터를 확정할 때 복사한다.
+    appearance_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -93,6 +95,8 @@ class Character(models.Model):
     gen_img_url = models.TextField()
     persona = models.TextField()
     visual = models.CharField(max_length=255, blank=True)
+    # 피드 생성 시 동일한 캐릭터 외형을 재현하기 위한 정규화 데이터.
+    appearance_payload = models.JSONField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

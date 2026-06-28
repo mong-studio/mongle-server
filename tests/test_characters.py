@@ -378,6 +378,11 @@ def test_character_register_success(
 def test_character_register_saves_appearance_as_visual(
     auth_client: APIClient, user: User
 ) -> None:
+    appearance_payload = {
+        "character_type": "bear",
+        "main_colors": ["yellow"],
+        "accessories": [],
+    }
     job = CharacterGenerationJob.objects.create(
         user=user,
         personality_keywords=["활발한"],
@@ -385,6 +390,7 @@ def test_character_register_saves_appearance_as_visual(
         gen_img_url="https://example.com/gen.png",
         persona="밝은 캐릭터",
         appearance="둥근 얼굴에 노란 털",
+        appearance_payload=appearance_payload,
     )
     # 요청에 persona 를 보내도 무시되고, job 의 AI 정제본이 저장돼야 한다.
     response = auth_client.post(
@@ -399,6 +405,7 @@ def test_character_register_saves_appearance_as_visual(
     assert response.status_code == 201
     character = Character.objects.get(character_id=response.json()["character_id"])
     assert character.visual == "둥근 얼굴에 노란 털"
+    assert character.appearance_payload == appearance_payload
     assert character.persona == "밝은 캐릭터"
 
     # 개인화 프로필(JSON)에 캐릭터 정보가 기록돼야 한다.
@@ -871,10 +878,19 @@ def test_process_job_submits_polls_and_saves_appearance(user: User, settings) ->
     submit = _mock_response(
         {"status": "pending", "result": {"job_id": "ai-1"}, "error": None}
     )
+    appearance_payload = {
+        "character_type": "bear",
+        "main_colors": ["brown"],
+        "accessories": [],
+    }
     poll = _mock_response(
         {
             "status": "done",
-            "result": {"image_url": "https://cdn/x.png", "appearance": "둥근 갈색 몸"},
+            "result": {
+                "image_url": "https://cdn/x.png",
+                "appearance": "둥근 갈색 몸",
+                "appearance_payload": appearance_payload,
+            },
             "error": None,
         }
     )
@@ -902,6 +918,7 @@ def test_process_job_submits_polls_and_saves_appearance(user: User, settings) ->
     assert job.status == "SUCCEEDED"
     assert job.gen_img_url == "https://cdn/x.png"
     assert job.appearance == "둥근 갈색 몸"
+    assert job.appearance_payload == appearance_payload
 
 
 # 생성 실패 시 제출 시점에 차감한 일일 생성 횟수(ImgGenLog)가 환불(삭제)되는지 확인
