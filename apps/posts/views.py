@@ -47,12 +47,13 @@ class PostListView(generics.ListAPIView):
         )
 
 
-class PostDetailView(generics.RetrieveAPIView):
+class PostDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = PostSerializer
     permission_classes = (IsAuthenticated,)
     lookup_field = "post_id"
 
     def get_queryset(self):
+        # 본인 캐릭터의 게시물만 조회·삭제할 수 있다(DELETE 시 댓글·답글은 CASCADE).
         return _POST_QUERYSET.filter(character__user=self.request.user)
 
     def get_serializer_context(self):
