@@ -14,7 +14,7 @@ from apps.posts.models import Comment, Post, Reply
 from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
-from apps.users.models import TokenTransaction, User
+from apps.users.models import Notification, TokenTransaction, User
 
 
 @pytest.mark.django_db
@@ -48,6 +48,36 @@ def test_generate_feed_post_sends_appearance_payload(
     payload = mock_post.call_args.kwargs["json"]
     assert payload["character"]["appearance_payload"] == appearance_payload
     assert Post.objects.filter(quest=quest).exists()
+
+
+@pytest.mark.django_db
+def test_generate_feed_post_creates_feed_notification(
+    character: Character, quest: Quest, settings
+) -> None:
+    # 피드가 생성되면 작성 캐릭터의 주인에게 type="feed" 알림이 남아야 한다.
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "result": {
+            "image_url": "https://cdn.test/feed.png",
+            "caption": "오늘도 산책을 완료했어요.",
+        }
+    }
+
+    with patch("apps.posts.tasks.httpx.post", return_value=response):
+        from apps.posts.tasks import generate_feed_post
+
+        generate_feed_post.run(str(quest.quest_id))
+
+    post = Post.objects.get(quest=quest)
+    note = Notification.objects.get(user=character.user, type="feed")
+    assert character.character_name in note.title
+    assert note.content == "오늘도 산책을 완료했어요."
+    assert note.data["target"] == "feed"
+    assert note.data["post_id"] == str(post.post_id)
 
 
 def _make_other_user_post() -> Post:
