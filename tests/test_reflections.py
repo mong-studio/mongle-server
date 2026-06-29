@@ -454,6 +454,43 @@ def test_midnight_tasks_fail_todos_and_send_reflection_notification(
 
 
 @pytest.mark.django_db
+def test_fail_incomplete_todos_fails_all_past_dates_not_just_yesterday(
+    user: User,
+    tag: Tag,
+) -> None:
+    # 어제뿐 아니라 며칠 전 미완료 TODO도 모두 실패 처리한다.
+    today = timezone.localdate()
+    older = Todo.objects.create(
+        user=user,
+        tag=tag,
+        content="며칠전미완료",
+        todo_date=today - timedelta(days=5),
+    )
+    yesterday = Todo.objects.create(
+        user=user,
+        tag=tag,
+        content="어제미완료",
+        todo_date=today - timedelta(days=1),
+    )
+    todays = Todo.objects.create(
+        user=user,
+        tag=tag,
+        content="오늘할일",
+        todo_date=today,
+    )
+
+    fail_incomplete_todos()
+
+    older.refresh_from_db()
+    yesterday.refresh_from_db()
+    todays.refresh_from_db()
+    assert older.status == Todo.Status.FAILED
+    assert yesterday.status == Todo.Status.FAILED
+    # 오늘 TODO는 아직 실패시키지 않는다.
+    assert todays.status == Todo.Status.IN_PROGRESS
+
+
+@pytest.mark.django_db
 def test_reflection_notification_skips_existing_reflection(
     user: User,
     tag: Tag,

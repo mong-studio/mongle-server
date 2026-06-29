@@ -21,7 +21,11 @@ from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.ai_client import TodoAIClient, TodoAIClientError
 from apps.todos.models import Schedule, Todo
-from apps.todos.serializers import ScheduleSerializer, TodoSerializer
+from apps.todos.serializers import (
+    ScheduleSerializer,
+    TodoExtendRequestSerializer,
+    TodoSerializer,
+)
 from apps.todos.todo_ai_serializers import (
     SavedScheduleSerializer,
     SavedTodoSerializer,
@@ -38,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 TODO_REWARD_AMOUNT = 1
 TODO_DAILY_REWARD_LIMIT = 10
+TODO_EXTENSION_TOKEN_COST = 4
 
 
 class TodoListCreateView(generics.ListCreateAPIView):
@@ -453,6 +458,83 @@ class TodoFailView(APIView):
             status=Quest.Status.FAILED, updated_at=timezone.now()
         )
         return Response({"todo_id": str(todo.todo_id), "status": todo.status})
+
+
+class TodoExtendView(APIView):
+    """지난 일자의 미완료 TODO를 토큰을 사용해 희망 날짜(오늘 이후)로 연장한다.
+
+    스키마 변경 없이 기존 필드만 사용한다: todo_date 를 옮기고, status 가 FAILED 였다면
+    다시 IN_PROGRESS 로 되살린다. 비용은 User.token_balance 에서 차감하고
+    TokenTransaction(type="todo_extension") 으로 기록한다(댓글·완료보상과 동일 패턴).
+    """
+
+    permission_classes = (IsAuthenticated,)
+
+    def patch(self, request, todo_id) -> Response:
+        serializer = TodoExtendRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_date = serializer.validated_data["todo_date"]
+        today = timezone.localdate()
+
+        if new_date < today:
+            return Response(
+                {"error": "오늘 이후 날짜로만 연장할 수 있어요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            todo = generics.get_object_or_404(
+                Todo.objects.select_for_update(),
+                todo_id=todo_id,
+                user=request.user,
+            )
+            if todo.status == Todo.Status.COMPLETED:
+                return Response(
+                    {"error": "이미 완료한 할 일은 연장할 수 없어요."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if todo.todo_date >= today:
+                return Response(
+                    {"error": "지난 할 일만 연장할 수 있어요."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user = User.objects.select_for_update().get(pk=request.user.pk)
+            if user.token_balance < TODO_EXTENSION_TOKEN_COST:
+                message = f"토큰이 부족해요. ({TODO_EXTENSION_TOKEN_COST}개 필요)"
+                return Response(
+                    {
+                        "error": {
+                            "code": "INSUFFICIENT_TOKEN_BALANCE",
+                            "message": message,
+                        }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # 날짜를 옮기고, 포기(FAILED)했던 건은 다시 진행 중으로 되살린다.
+            todo.todo_date = new_date
+            if todo.status == Todo.Status.FAILED:
+                todo.status = Todo.Status.IN_PROGRESS
+            todo.save(update_fields=["todo_date", "status", "updated_at"])
+
+            user.token_balance -= TODO_EXTENSION_TOKEN_COST
+            user.save(update_fields=["token_balance", "updated_at"])
+            TokenTransaction.objects.create(
+                user=user,
+                amount=-TODO_EXTENSION_TOKEN_COST,
+                type="todo_extension",
+                reference_id=str(todo.todo_id),
+            )
+
+        return Response(
+            {
+                "todo_id": str(todo.todo_id),
+                "status": todo.status,
+                "todo_date": todo.todo_date,
+                "token_balance": user.token_balance,
+            }
+        )
 
 
 class ScheduleCreateView(generics.CreateAPIView):
