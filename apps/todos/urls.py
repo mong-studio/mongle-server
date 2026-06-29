@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.todos.views import (
+    TodoChatAIJobView,
     TodoChatAIView,
     TodoCompleteView,
     TodoConfirmView,
@@ -17,6 +18,7 @@ from apps.todos.views import (
 urlpatterns = [
     path("generate/", TodoGenerateAIView.as_view(), name="todo-generate"),
     path("chat/", TodoChatAIView.as_view(), name="todo-chat"),
+    path("chat/<str:job_id>/", TodoChatAIJobView.as_view(), name="todo-chat-job"),
     path(
         "planner-confirm/",
         TodoPlannerConfirmView.as_view(),

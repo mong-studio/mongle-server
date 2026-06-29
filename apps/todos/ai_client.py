@@ -38,6 +38,17 @@ class TodoAIClient:
     def chat(
         self, *, user_id: str, message: str, today: str, thread_id: str | None
     ) -> dict[str, Any]:
+        job_id = self.submit_chat(
+            user_id=user_id,
+            message=message,
+            today=today,
+            thread_id=thread_id,
+        )
+        return self.poll_chat(job_id=job_id)
+
+    def submit_chat(
+        self, *, user_id: str, message: str, today: str, thread_id: str | None
+    ) -> str:
         payload: dict[str, Any] = {
             "mode": "multi",
             "user_id": user_id,
@@ -46,11 +57,18 @@ class TodoAIClient:
         }
         if thread_id:
             payload["thread_id"] = thread_id
-        return self._submit_and_poll(
-            submit_path="/v1/todo/chat",
-            poll_prefix="/v1/todo/chat",
-            payload=payload,
-        )
+        return self._submit_job(submit_path="/v1/todo/chat", payload=payload)
+
+    def poll_chat(self, *, job_id: str) -> dict[str, Any]:
+        body = self._request("GET", f"/v1/todo/chat/{job_id}")
+        job_status = body.get("status")
+        if job_status == "done":
+            return body
+        if job_status == "pending":
+            return body
+        if job_status == "error":
+            return body
+        raise TodoAIClientError(f"mongle-ai returned unknown job status: {body}")
 
     def generate_quests(
         self,
@@ -80,12 +98,7 @@ class TodoAIClient:
         개별 요청은 짧은 타임아웃, 전체 대기는 self.timeout_seconds 까지 폴링한다.
         Pod 프록시 100s 하드 타임아웃을 개별 요청이 넘지 않게 분리한다.
         """
-        submit = self._request("POST", submit_path, payload=payload)
-        job_id = (submit.get("result") or {}).get("job_id")
-        if not job_id:
-            raise TodoAIClientError(
-                f"mongle-ai submit 응답에 job_id 가 없습니다: {submit}"
-            )
+        job_id = self._submit_job(submit_path=submit_path, payload=payload)
 
         deadline = time.monotonic() + self.timeout_seconds
         while True:
@@ -102,6 +115,15 @@ class TodoAIClient:
             if time.monotonic() >= deadline:
                 raise TodoAIClientError("mongle-ai 폴링 타임아웃")
             time.sleep(_POLL_INTERVAL_SECONDS)
+
+    def _submit_job(self, *, submit_path: str, payload: dict[str, Any]) -> str:
+        submit = self._request("POST", submit_path, payload=payload)
+        job_id = (submit.get("result") or {}).get("job_id")
+        if not job_id:
+            raise TodoAIClientError(
+                f"mongle-ai submit 응답에 job_id 가 없습니다: {submit}"
+            )
+        return str(job_id)
 
     @staticmethod
     def _unwrap_result(body: dict[str, Any]) -> dict[str, Any]:
