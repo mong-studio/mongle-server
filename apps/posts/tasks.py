@@ -68,12 +68,26 @@ def generate_feed_post(self, quest_id: str) -> None:
     if Post.objects.filter(quest=quest).exists():
         return
 
-    Post.objects.create(
+    post = Post.objects.create(
         character=character,
         quest=quest,
         content=caption,
         img_url=img_url,
     )
+
+    # 피드가 실제로 올라오면 작성 캐릭터의 주인에게 알림(토스트+알림창)을 남긴다.
+    # 알림 생성 실패가 피드 생성을 깨뜨리지 않도록 best-effort 로 처리한다.
+    try:
+        from apps.users.notification_service import create_feed_post_notification
+
+        create_feed_post_notification(
+            user=character.user,
+            character_name=character.character_name,
+            caption=caption,
+            post_id=post.post_id,
+        )
+    except Exception:
+        logger.warning("feed notification 생성 실패: quest_id=%s", quest_id)
 
 
 @shared_task(bind=True, max_retries=2)
