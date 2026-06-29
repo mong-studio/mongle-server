@@ -122,7 +122,7 @@ class TodoChatAIView(APIView):
         today = timezone.localdate().isoformat()
 
         try:
-            result = _todo_ai_client().chat(
+            job_id = _todo_ai_client().submit_chat(
                 user_id=str(user.user_id),
                 message=serializer.validated_data["message"],
                 today=today,
@@ -130,7 +130,21 @@ class TodoChatAIView(APIView):
             )
         except TodoAIClientError as err:
             return Response({"error": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(
+            {"status": "pending", "result": {"job_id": job_id}, "error": None},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class TodoChatAIJobView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, job_id: str) -> Response:
+        try:
+            envelope = _todo_ai_client().poll_chat(job_id=job_id)
+        except TodoAIClientError as err:
+            return Response({"error": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(envelope, status=status.HTTP_200_OK)
 
 
 class TodoPlannerConfirmView(APIView):

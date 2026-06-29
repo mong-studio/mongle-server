@@ -45,10 +45,22 @@ mongle-server
     X-API-Key: {MONGLE_AI_API_KEY}
 
 mongle-ai
-  follow_up 또는 candidates 반환
+  202 pending + job_id 반환
+
+mongle-web
+  GET /api/v1/todos/chat/{job_id}/
+    Authorization: Bearer {access_token}
+
+mongle-server
+  GET {MONGLE_AI_API_BASE}/v1/todo/chat/{job_id}
+    X-Internal-Service-Token: {MONGLE_AI_API_KEY}
+    X-API-Key: {MONGLE_AI_API_KEY}
+
+mongle-ai
+  pending, error, done + follow_up 또는 candidates 반환
 ```
 
-프론트는 `/todos/chat/` 응답이 `follow_up`이면 같은 `thread_id`로 대화를 이어가고, `candidates`이면 생성된 계획을 화면에 보여준다.
+프론트는 `/todos/chat/` 응답으로 받은 `job_id`를 폴링한다. 최종 응답이 `follow_up`이면 같은 `thread_id`로 대화를 이어가고, `candidates`이면 생성된 계획을 화면에 보여준다. 플랜 생성은 RunPod/LLM 호출 시간이 길 수 있으므로 브라우저 요청 하나를 끝까지 붙잡지 않는다.
 
 ### 2. 프론트 플래너 저장
 
@@ -96,7 +108,8 @@ mongle-server
 | Endpoint | 호출자 | 인증 | 역할 |
 | --- | --- | --- | --- |
 | `POST /api/v1/todos/generate/` | Web | `Authorization` | 싱글턴 TODO 후보 생성 |
-| `POST /api/v1/todos/chat/` | Web | `Authorization` | 멀티턴 플래너 대화 |
+| `POST /api/v1/todos/chat/` | Web | `Authorization` | 멀티턴 플래너 대화 job 생성 |
+| `GET /api/v1/todos/chat/{job_id}/` | Web | `Authorization` | 멀티턴 플래너 대화 job 상태/결과 조회 |
 | `POST /api/v1/todos/planner-confirm/` | Web | `Authorization` | 플래너 후보를 현재 사용자 Todo/Schedule로 저장 |
 | `POST /api/v1/todos/confirm/` | Web | `Authorization` | 일반 TODO 후보 확정 저장 |
 | `POST /api/v1/todos/commit/` | Internal/AI | `X-Internal-Service-Token` | 내부 commit 계약 |
@@ -106,7 +119,8 @@ mongle-server
 | AI endpoint | Django 호출 위치 | 역할 |
 | --- | --- | --- |
 | `POST /v1/todo/generate` | `TodoAIClient.generate()` | 싱글턴 후보 생성 |
-| `POST /v1/todo/chat` | `TodoAIClient.chat()` | 플래너 멀티턴 대화 |
+| `POST /v1/todo/chat` | `TodoAIClient.submit_chat()` | 플래너 멀티턴 대화 job 생성 |
+| `GET /v1/todo/chat/{job_id}` | `TodoAIClient.poll_chat()` | 플래너 멀티턴 대화 job 상태/결과 조회 |
 | `POST /v1/todo/commit` | 현재 Django에서 직접 사용하지 않음 | AI 내부 commit 그래프 |
 | `POST /v1/quest/generate` | `_assign_quests_to_todos()` | 저장된 오늘 Todo에 퀘스트 분배 |
 

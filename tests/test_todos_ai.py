@@ -73,12 +73,7 @@ def test_todo_generate_returns_502_when_ai_fails(auth_client) -> None:
 @override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
 def test_todo_chat_returns_follow_up_for_authenticated_user(auth_client) -> None:
     with patch("apps.todos.views._todo_ai_client") as factory:
-        factory.return_value.chat.return_value = {
-            "kind": "follow_up",
-            "thread_id": "thread-2",
-            "question": "언제까지 끝내고 싶으세요?",
-            "missing_aspects": ["deadline"],
-        }
+        factory.return_value.submit_chat.return_value = "job-123"
 
         response = auth_client.post(
             "/api/v1/todos/chat/",
@@ -86,9 +81,34 @@ def test_todo_chat_returns_follow_up_for_authenticated_user(auth_client) -> None
             content_type="application/json",
         )
 
+    assert response.status_code == 202
+    assert response.json()["status"] == "pending"
+    assert response.json()["result"]["job_id"] == "job-123"
+    factory.return_value.submit_chat.assert_called_once()
+
+
+@pytest.mark.django_db
+@override_settings(MONGLE_AI_API_KEY=TEST_INTERNAL_TOKEN)
+def test_todo_chat_job_poll_returns_ai_envelope(auth_client) -> None:
+    job_id = "11111111111111111111111111111111"
+    with patch("apps.todos.views._todo_ai_client") as factory:
+        factory.return_value.poll_chat.return_value = {
+            "status": "done",
+            "result": {
+                "kind": "follow_up",
+                "thread_id": "thread-2",
+                "question": "언제까지 끝내고 싶으세요?",
+                "missing_aspects": ["deadline"],
+            },
+            "error": None,
+        }
+
+        response = auth_client.get(f"/api/v1/todos/chat/{job_id}/")
+
     assert response.status_code == 200
-    assert response.json()["kind"] == "follow_up"
-    assert response.json()["thread_id"] == "thread-2"
+    assert response.json()["status"] == "done"
+    assert response.json()["result"]["kind"] == "follow_up"
+    factory.return_value.poll_chat.assert_called_once_with(job_id=job_id)
 
 
 @pytest.mark.django_db
