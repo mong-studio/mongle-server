@@ -356,6 +356,7 @@ class CharacterListView(APIView):
             gen_img_url=gen_img_object_key,
             persona=job.persona,
             visual=job.appearance,
+            appearance_payload=job.appearance_payload,
         )
 
         job.status = CharacterGenerationJob.Status.CONSUMED

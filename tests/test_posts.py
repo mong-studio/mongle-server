@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 import pytest
@@ -14,6 +15,39 @@ from apps.quests.models import Quest
 from apps.tags.models import Tag
 from apps.todos.models import Todo
 from apps.users.models import TokenTransaction, User
+
+
+@pytest.mark.django_db
+def test_generate_feed_post_sends_appearance_payload(
+    character: Character, quest: Quest, settings
+) -> None:
+    appearance_payload = {
+        "character_type": "bear",
+        "main_colors": ["brown"],
+        "accessories": ["red ribbon"],
+    }
+    character.appearance_payload = appearance_payload
+    character.save(update_fields=["appearance_payload", "updated_at"])
+    settings.AI_SERVICE_URL = "http://ai.test"
+    settings.AI_SERVICE_TOKEN = "secret-key"  # noqa: S105
+
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "result": {
+            "image_url": "https://cdn.test/feed.png",
+            "caption": "오늘도 산책을 완료했어요.",
+        }
+    }
+
+    with patch("apps.posts.tasks.httpx.post", return_value=response) as mock_post:
+        from apps.posts.tasks import generate_feed_post
+
+        generate_feed_post.run(str(quest.quest_id))
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["character"]["appearance_payload"] == appearance_payload
+    assert Post.objects.filter(quest=quest).exists()
 
 
 def _make_other_user_post() -> Post:

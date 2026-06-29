@@ -39,6 +39,7 @@ def generate_feed_post(self, quest_id: str) -> None:
             "personality": character.persona,
             "speech_style": "",
             "appearance_keywords": [character.visual] if character.visual else [],
+            "appearance_payload": character.appearance_payload,
             # gen_img_url 은 S3 object key 라 AI fetch 용 presigned URL 로 변환.
             "image_url": _resolve_gen_img_url(character.gen_img_url),
         },

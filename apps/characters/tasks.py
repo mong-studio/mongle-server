@@ -232,6 +232,7 @@ def process_character_generation_job(
             locked.gen_img_url = result.get("image_url", "")
             locked.gen_img_object_key = result.get("gen_img_object_key", "")
             locked.appearance = result.get("appearance", "")
+            locked.appearance_payload = result.get("appearance_payload")
             locked.persona = _compose_persona(result)
             locked.status = CharacterGenerationJob.Status.SUCCEEDED
             locked.save(
@@ -239,6 +240,7 @@ def process_character_generation_job(
                     "gen_img_url",
                     "gen_img_object_key",
                     "appearance",
+                    "appearance_payload",
                     "persona",
                     "status",
                     "updated_at",
